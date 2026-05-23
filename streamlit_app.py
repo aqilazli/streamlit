@@ -1,7 +1,14 @@
-
+import streamlit as st
 from streamlit.components.v1 import html
 
 st.set_page_config(page_title="SMS Phishing Detection", layout="wide", initial_sidebar_state="collapsed")
+
+# Load secrets or environment variables
+bert_token = st.secrets.get("BERT_TOKEN", "")
+bert_model = st.secrets.get("BERT_MODEL", "")
+distilbert_token = st.secrets.get("DISTILBERT_TOKEN", "")
+distilbert_model = st.secrets.get("DISTILBERT_MODEL", "")
+default_model = st.secrets.get("DEFAULT_MODEL", "bert")
 
 html_content = """
 <!DOCTYPE html>
@@ -1167,6 +1174,7 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
 </div>
 
 <script>
+// CONFIG_PLACEHOLDER
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
 function playSendSound() {
@@ -1283,17 +1291,34 @@ async function sendMessage() {
   senderDiv.scrollTop = senderDiv.scrollHeight;
   playSendSound();
 
-  // Call REST API for detection
+  // Call HF Inference API for detection
   try {
-    const response = await fetch('http://localhost:5000/predict', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({text: text})
-    });
-    const data = await response.json();
+    const modelSelect = document.getElementById('modelSelect');
+    const selectedModel = modelSelect.value || appConfig.default_model;
+    const token = selectedModel === 'bert' ? appConfig.bert_token : appConfig.distilbert_token;
+    const modelId = selectedModel === 'bert' ? appConfig.bert_model : appConfig.distilbert_model;
 
-    const phish = data.is_phishing || false;
-    const confidence = Math.round(data.confidence * 100);
+    const response = await fetch(`https://api-inference.huggingface.co/models/${modelId}`, {
+      method: 'POST',
+      headers: {'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json'},
+      body: JSON.stringify({inputs: text})
+    });
+    const hfData = await response.json();
+
+    let phish = false;
+    let confidence = 0;
+
+    if (Array.isArray(hfData) && hfData.length > 0) {
+      const scores = Array.isArray(hfData[0]) ? hfData[0] : hfData;
+      if (Array.isArray(scores) && scores.length > 0) {
+        const sorted = scores.sort((a, b) => b.score - a.score);
+        const top = sorted[0];
+        confidence = Math.round(top.score * 100);
+        const label = top.label.toUpperCase();
+        phish = label === 'PHISHING' || label === 'SMISHING' || label === '2';
+      }
+    }
+
     if (phish) playSmishingAlert();
 
     document.getElementById('confidenceScore').textContent = confidence + '%';
@@ -1343,16 +1368,29 @@ async function sendReceiverMessage() {
   receiverDiv.scrollTop = receiverDiv.scrollHeight;
   playSendSound();
 
-  // Call REST API for detection
+  // Call HF Inference API for detection
   try {
-    const response = await fetch('http://localhost:5000/predict', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({text: text})
-    });
-    const data = await response.json();
+    const modelSelect = document.getElementById('modelSelect');
+    const selectedModel = modelSelect.value || appConfig.default_model;
+    const token = selectedModel === 'bert' ? appConfig.bert_token : appConfig.distilbert_token;
+    const modelId = selectedModel === 'bert' ? appConfig.bert_model : appConfig.distilbert_model;
 
-    const confidence = Math.round(data.confidence * 100);
+    const response = await fetch(`https://api-inference.huggingface.co/models/${modelId}`, {
+      method: 'POST',
+      headers: {'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json'},
+      body: JSON.stringify({inputs: text})
+    });
+    const hfData = await response.json();
+
+    let confidence = 0;
+    if (Array.isArray(hfData) && hfData.length > 0) {
+      const scores = Array.isArray(hfData[0]) ? hfData[0] : hfData;
+      if (Array.isArray(scores) && scores.length > 0) {
+        const top = scores.sort((a, b) => b.score - a.score)[0];
+        confidence = Math.round(top.score * 100);
+      }
+    }
+
     document.getElementById('confidenceScore').textContent = confidence + '%';
     document.getElementById('predictionStatus').textContent = 'Safe';
     document.getElementById('predictionStatus').style.color = '#22c55e';
@@ -1608,5 +1646,17 @@ document.addEventListener('click', hideKeyboard);
 </body>
 </html>
 """
+
+# Inject config into HTML
+config_js = f"""
+const appConfig = {{
+  bert_token: '{bert_token}',
+  bert_model: '{bert_model}',
+  distilbert_token: '{distilbert_token}',
+  distilbert_model: '{distilbert_model}',
+  default_model: '{default_model}'
+}};
+"""
+html_content = html_content.replace('// CONFIG_PLACEHOLDER', config_js)
 
 html(html_content, height=1600)
