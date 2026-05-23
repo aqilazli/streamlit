@@ -1,7 +1,6 @@
 import streamlit as st
 from streamlit.components.v1 import html
 import requests
-import json
 
 st.set_page_config(page_title="SMS Phishing Detection", layout="wide", initial_sidebar_state="collapsed")
 
@@ -58,30 +57,8 @@ def call_hf_api(text, model_name):
     except Exception as e:
         return None, str(e)
 
-# Hidden input for JavaScript to send messages
-col1, col2, col3 = st.columns([1, 1, 1])
-with col1:
-    pass
-with col2:
-    message_input = st.text_input("msg", key="phishing_message", label_visibility="collapsed", placeholder="")
-with col3:
-    pass
-
-# Process API call if new message
-if message_input and message_input != st.session_state.get('last_msg_processed', ''):
-    st.session_state.last_msg_processed = message_input
-    result, error = call_hf_api(message_input, default_model)
-    if result:
-        st.session_state.api_result = result
-    else:
-        st.session_state.api_result = {'confidence': 0, 'prediction': 'Error', 'is_phishing': False}
-
-# Get latest API result
-if 'api_result' not in st.session_state:
-    st.session_state.api_result = {'confidence': 0, 'prediction': 'Waiting', 'is_phishing': False}
-
-api_data = st.session_state.api_result
-api_json = json.dumps(api_data)
+# Render HTML UI first
+api_json = "{}"  # Placeholder
 
 html_content = """
 <!DOCTYPE html>
@@ -1664,62 +1641,34 @@ document.addEventListener('click', hideKeyboard);
 </html>
 """
 
-# Inject config and API data into HTML
-config_js = f"""
-const appConfig = {{
-  default_model: '{default_model}'
-}};
-let apiResult = {api_json};
+# Remove placeholder
+html_content = html_content.replace('// CONFIG_PLACEHOLDER', '')
 
-function submitMessageToPython(text, model) {{
-  // Find the hidden msg input in parent window
-  try {{
-    const allInputs = parent.document.querySelectorAll('input[type="text"]');
-    for (let input of allInputs) {{
-      if (input.value === '' || input.placeholder === '') {{
-        input.value = text;
-        input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-        input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-        // Poll for result
-        let attempts = 0;
-        const pollInterval = setInterval(() => {{
-          const resultDiv = document.getElementById('apiResultData');
-          if (resultDiv && resultDiv.textContent && resultDiv.textContent.length > 5) {{
-            try {{
-              const data = JSON.parse(resultDiv.textContent);
-              if (data && data.is_phishing !== undefined) {{
-                apiResult = data;
-                updateUI();
-                clearInterval(pollInterval);
-              }}
-            }} catch(e) {{}}
-          }}
-          attempts++;
-          if (attempts > 30) clearInterval(pollInterval);
-        }}, 150);
-        break;
-      }}
-    }}
-  }} catch(e) {{
-    console.log('Parent window not accessible');
-  }}
-}}
-
-function updateUI() {{
-  if (apiResult && apiResult.is_phishing !== undefined) {{
-    const phish = apiResult.is_phishing;
-    const conf = apiResult.confidence || 0;
-    if (phish) playSmishingAlert();
-    document.getElementById('confidenceScore').textContent = conf + '%';
-    document.getElementById('predictionStatus').textContent = phish ? 'Smishing' : 'Safe';
-    document.getElementById('predictionStatus').style.color = phish ? '#ef4444' : '#22c55e';
-  }}
-}}
-"""
-html_content = html_content.replace('// CONFIG_PLACEHOLDER', config_js)
-
-# Add hidden data div before closing html tag
-hidden_div = f'<div id="apiResultData" style="display:none;">{api_json}</div>'
-html_content = html_content.replace('</html>', f'{hidden_div}\n</html>')
-
+# Render UI
 html(html_content, height=1600)
+
+# Add detection form below UI
+st.markdown("---")
+st.subheader("🔍 Check Message for Phishing")
+
+with st.form("phishing_form"):
+    message = st.text_area("Enter message to check:", placeholder="Paste SMS or message text here")
+    model = st.selectbox("Model:", ["bert", "distilbert"])
+    submit = st.form_submit_button("Detect Phishing", use_container_width=True)
+
+    if submit and message:
+        with st.spinner("Analyzing..."):
+            result, error = call_hf_api(message, model)
+
+        if result:
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                status_icon = "🚩" if result['is_phishing'] else "✅"
+                status_text = "SMISHING" if result['is_phishing'] else "SAFE"
+                st.metric("Status", f"{status_icon} {status_text}")
+            with col2:
+                st.metric("Confidence", f"{result['confidence']}%")
+            with col3:
+                st.metric("Type", result['prediction'])
+        else:
+            st.error(f"Error: {error}")
