@@ -59,18 +59,28 @@ def call_hf_api(text, model_name):
         return None, str(e)
 
 # Hidden input for JavaScript to send messages
-message_input = st.text_input("msg", key="phishing_message", label_visibility="collapsed", placeholder="", value="")
+col1, col2, col3 = st.columns([1, 1, 1])
+with col1:
+    pass
+with col2:
+    message_input = st.text_input("msg", key="phishing_message", label_visibility="collapsed", placeholder="")
+with col3:
+    pass
 
 # Process API call if new message
-if message_input and message_input != st.session_state.get('last_processed', ''):
-    st.session_state.last_processed = message_input
-    model = st.session_state.get('selected_model', default_model)
-    result, error = call_hf_api(message_input, model)
-    st.session_state.api_result = {'result': result, 'error': error}
-    st.rerun()
+if message_input and message_input != st.session_state.get('last_msg_processed', ''):
+    st.session_state.last_msg_processed = message_input
+    result, error = call_hf_api(message_input, default_model)
+    if result:
+        st.session_state.api_result = result
+    else:
+        st.session_state.api_result = {'confidence': 0, 'prediction': 'Error', 'is_phishing': False}
 
-# Create JSON data for JavaScript
-api_data = st.session_state.api_result if st.session_state.api_result else {'result': None, 'error': None}
+# Get latest API result
+if 'api_result' not in st.session_state:
+    st.session_state.api_result = {'confidence': 0, 'prediction': 'Waiting', 'is_phishing': False}
+
+api_data = st.session_state.api_result
 api_json = json.dumps(api_data)
 
 html_content = """
@@ -1355,13 +1365,11 @@ async function sendMessage() {
   playSendSound();
 
   // Submit message to Python for detection
-  const modelSelect = document.getElementById('modelSelect');
-  const selectedModel = modelSelect.value || appConfig.default_model;
-  submitMessageToPython(text, selectedModel);
+  submitMessageToPython(text, 'bert');
 
-  // Add to receiver immediately (will update detection status after Python responds)
+  // Add to receiver (flag will update after API processes)
   setTimeout(() => {
-    const phish = apiResult && apiResult.result && apiResult.result.is_phishing ? true : false;
+    const phish = apiResult && apiResult.is_phishing ? true : false;
     const receiverDiv = document.getElementById('receiverMessages');
     const receivedMsg = `<div class="message received">
       <div class="avatar">?</div>
@@ -1375,7 +1383,7 @@ async function sendMessage() {
     </div>`;
     receiverDiv.insertAdjacentHTML('beforeend', receivedMsg);
     receiverDiv.scrollTop = receiverDiv.scrollHeight;
-  }, 100);
+  }, 50);
 
   inp.value = '';
   document.getElementById('phoneKeyboard').classList.remove('active');
@@ -1401,11 +1409,9 @@ async function sendReceiverMessage() {
   playSendSound();
 
   // Submit message to Python for detection
-  const modelSelect = document.getElementById('modelSelect');
-  const selectedModel = modelSelect.value || appConfig.default_model;
-  submitMessageToPython(text, selectedModel);
+  submitMessageToPython(text, 'bert');
 
-  // Add to sender (receiver messages don't get flagged)
+  // Add to sender (receiver messages don't get flagged, always safe)
   setTimeout(() => {
     document.getElementById('confidenceScore').textContent = '0%';
     document.getElementById('predictionStatus').textContent = 'Safe';
@@ -1421,7 +1427,7 @@ async function sendReceiverMessage() {
     </div>`;
     senderDiv.insertAdjacentHTML('beforeend', receivedMsg);
     senderDiv.scrollTop = senderDiv.scrollHeight;
-  }, 100);
+  }, 50);
 
   inp.value = '';
   document.getElementById('receiverKeyboard').classList.remove('active');
@@ -1661,45 +1667,50 @@ document.addEventListener('click', hideKeyboard);
 # Inject config and API data into HTML
 config_js = f"""
 const appConfig = {{
-  bert_token: '{bert_token}',
-  bert_model: '{bert_model}',
-  distilbert_token: '{distilbert_token}',
-  distilbert_model: '{distilbert_model}',
   default_model: '{default_model}'
 }};
 let apiResult = {api_json};
 
 function submitMessageToPython(text, model) {{
-  // Find Streamlit input by looking for all inputs
-  const allInputs = document.querySelectorAll('input[type="text"]');
-  for (let input of allInputs) {{
-    const parentDiv = input.closest('div');
-    if (parentDiv && parentDiv.textContent.includes('msg')) {{
-      input.value = text;
-      input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-      input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-      // Wait for Python to process
-      setTimeout(() => {{
-        const resultDiv = document.getElementById('apiResultData');
-        if (resultDiv && resultDiv.textContent) {{
-          try {{
-            const newResult = JSON.parse(resultDiv.textContent);
-            apiResult = newResult;
-            updateUI();
-          }} catch(e) {{}}
-        }}
-      }}, 800);
-      break;
+  // Find the hidden msg input in parent window
+  try {{
+    const allInputs = parent.document.querySelectorAll('input[type="text"]');
+    for (let input of allInputs) {{
+      if (input.value === '' || input.placeholder === '') {{
+        input.value = text;
+        input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+        input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+        // Poll for result
+        let attempts = 0;
+        const pollInterval = setInterval(() => {{
+          const resultDiv = document.getElementById('apiResultData');
+          if (resultDiv && resultDiv.textContent && resultDiv.textContent.length > 5) {{
+            try {{
+              const data = JSON.parse(resultDiv.textContent);
+              if (data && data.is_phishing !== undefined) {{
+                apiResult = data;
+                updateUI();
+                clearInterval(pollInterval);
+              }}
+            }} catch(e) {{}}
+          }}
+          attempts++;
+          if (attempts > 30) clearInterval(pollInterval);
+        }}, 150);
+        break;
+      }}
     }}
+  }} catch(e) {{
+    console.log('Parent window not accessible');
   }}
 }}
 
 function updateUI() {{
-  if (apiResult && apiResult.result) {{
-    const phish = apiResult.result.is_phishing || false;
-    const confidence = apiResult.result.confidence || 0;
+  if (apiResult && apiResult.is_phishing !== undefined) {{
+    const phish = apiResult.is_phishing;
+    const conf = apiResult.confidence || 0;
     if (phish) playSmishingAlert();
-    document.getElementById('confidenceScore').textContent = confidence + '%';
+    document.getElementById('confidenceScore').textContent = conf + '%';
     document.getElementById('predictionStatus').textContent = phish ? 'Smishing' : 'Safe';
     document.getElementById('predictionStatus').style.color = phish ? '#ef4444' : '#22c55e';
   }}
