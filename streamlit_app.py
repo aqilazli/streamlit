@@ -59,11 +59,7 @@ def call_hf_api(text, model_name):
         return None, str(e)
 
 # Hidden input for JavaScript to send messages
-col1, col2 = st.columns([1, 20])
-with col1:
-    pass
-with col2:
-    message_input = st.text_input("", key="phishing_message", label_visibility="collapsed", placeholder="Message from JS")
+message_input = st.text_input("msg", key="phishing_message", label_visibility="collapsed", placeholder="", value="")
 
 # Process API call if new message
 if message_input and message_input != st.session_state.get('last_processed', ''):
@@ -71,6 +67,7 @@ if message_input and message_input != st.session_state.get('last_processed', '')
     model = st.session_state.get('selected_model', default_model)
     result, error = call_hf_api(message_input, model)
     st.session_state.api_result = {'result': result, 'error': error}
+    st.rerun()
 
 # Create JSON data for JavaScript
 api_data = st.session_state.api_result if st.session_state.api_result else {'result': None, 'error': None}
@@ -1360,36 +1357,11 @@ async function sendMessage() {
   // Submit message to Python for detection
   const modelSelect = document.getElementById('modelSelect');
   const selectedModel = modelSelect.value || appConfig.default_model;
-
-  // Send to Python backend
   submitMessageToPython(text, selectedModel);
 
-  // Wait briefly for Python to process, then check result
+  // Add to receiver immediately (will update detection status after Python responds)
   setTimeout(() => {
-    // Get latest result from page data
-    const resultDiv = document.getElementById('apiResultData');
-    let phish = false;
-    let confidence = 0;
-
-    if (resultDiv && resultDiv.textContent) {
-      try {
-        const data = JSON.parse(resultDiv.textContent);
-        if (data.result) {
-          phish = data.result.is_phishing || false;
-          confidence = data.result.confidence || 0;
-
-          if (phish) playSmishingAlert();
-
-          document.getElementById('confidenceScore').textContent = confidence + '%';
-          document.getElementById('predictionStatus').textContent = phish ? 'Smishing' : 'Safe';
-          document.getElementById('predictionStatus').style.color = phish ? '#ef4444' : '#22c55e';
-        }
-      } catch (e) {
-        console.error('Parse error:', e);
-      }
-    }
-
-    // Add to receiver
+    const phish = apiResult && apiResult.result && apiResult.result.is_phishing ? true : false;
     const receiverDiv = document.getElementById('receiverMessages');
     const receivedMsg = `<div class="message received">
       <div class="avatar">?</div>
@@ -1403,7 +1375,7 @@ async function sendMessage() {
     </div>`;
     receiverDiv.insertAdjacentHTML('beforeend', receivedMsg);
     receiverDiv.scrollTop = receiverDiv.scrollHeight;
-  }, 500);
+  }, 100);
 
   inp.value = '';
   document.getElementById('phoneKeyboard').classList.remove('active');
@@ -1431,31 +1403,14 @@ async function sendReceiverMessage() {
   // Submit message to Python for detection
   const modelSelect = document.getElementById('modelSelect');
   const selectedModel = modelSelect.value || appConfig.default_model;
-
-  // Send to Python backend
   submitMessageToPython(text, selectedModel);
 
-  // Wait briefly for Python to process
+  // Add to sender (receiver messages don't get flagged)
   setTimeout(() => {
-    const resultDiv = document.getElementById('apiResultData');
-    let confidence = 0;
-
-    if (resultDiv && resultDiv.textContent) {
-      try {
-        const data = JSON.parse(resultDiv.textContent);
-        if (data.result) {
-          confidence = data.result.confidence || 0;
-        }
-      } catch (e) {
-        console.error('Parse error:', e);
-      }
-    }
-
-    document.getElementById('confidenceScore').textContent = confidence + '%';
+    document.getElementById('confidenceScore').textContent = '0%';
     document.getElementById('predictionStatus').textContent = 'Safe';
     document.getElementById('predictionStatus').style.color = '#22c55e';
 
-    // Add to sender
     const senderDiv = document.getElementById('senderMessages');
     const receivedMsg = `<div class="message received">
       <div class="avatar">?</div>
@@ -1466,7 +1421,7 @@ async function sendReceiverMessage() {
     </div>`;
     senderDiv.insertAdjacentHTML('beforeend', receivedMsg);
     senderDiv.scrollTop = senderDiv.scrollHeight;
-  }, 500);
+  }, 100);
 
   inp.value = '';
   document.getElementById('receiverKeyboard').classList.remove('active');
@@ -1712,21 +1667,48 @@ const appConfig = {{
   distilbert_model: '{distilbert_model}',
   default_model: '{default_model}'
 }};
-const apiResult = {api_json};
+let apiResult = {api_json};
 
 function submitMessageToPython(text, model) {{
-  const input = document.querySelector('input[data-testid="TextInput"]');
-  if (input) {{
-    input.value = text;
-    input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-    input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+  // Find Streamlit input by looking for all inputs
+  const allInputs = document.querySelectorAll('input[type="text"]');
+  for (let input of allInputs) {{
+    const parentDiv = input.closest('div');
+    if (parentDiv && parentDiv.textContent.includes('msg')) {{
+      input.value = text;
+      input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+      input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+      // Wait for Python to process
+      setTimeout(() => {{
+        const resultDiv = document.getElementById('apiResultData');
+        if (resultDiv && resultDiv.textContent) {{
+          try {{
+            const newResult = JSON.parse(resultDiv.textContent);
+            apiResult = newResult;
+            updateUI();
+          }} catch(e) {{}}
+        }}
+      }}, 800);
+      break;
+    }}
+  }}
+}}
+
+function updateUI() {{
+  if (apiResult && apiResult.result) {{
+    const phish = apiResult.result.is_phishing || false;
+    const confidence = apiResult.result.confidence || 0;
+    if (phish) playSmishingAlert();
+    document.getElementById('confidenceScore').textContent = confidence + '%';
+    document.getElementById('predictionStatus').textContent = phish ? 'Smishing' : 'Safe';
+    document.getElementById('predictionStatus').style.color = phish ? '#ef4444' : '#22c55e';
   }}
 }}
 """
 html_content = html_content.replace('// CONFIG_PLACEHOLDER', config_js)
 
-# Add hidden data div before closing body tag
+# Add hidden data div before closing html tag
 hidden_div = f'<div id="apiResultData" style="display:none;">{api_json}</div>'
-html_content = html_content.replace('</body>', f'{hidden_div}\n</body>')
+html_content = html_content.replace('</html>', f'{hidden_div}\n</html>')
 
 html(html_content, height=1600)
