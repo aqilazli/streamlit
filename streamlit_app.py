@@ -1,5 +1,7 @@
 import streamlit as st
 from streamlit.components.v1 import html
+import requests
+import json
 
 st.set_page_config(page_title="SMS Phishing Detection", layout="wide", initial_sidebar_state="collapsed")
 
@@ -9,6 +11,70 @@ bert_model = st.secrets.get("BERT_MODEL", "")
 distilbert_token = st.secrets.get("DISTILBERT_TOKEN", "")
 distilbert_model = st.secrets.get("DISTILBERT_MODEL", "")
 default_model = st.secrets.get("DEFAULT_MODEL", "bert")
+
+# Initialize session state
+if 'api_result' not in st.session_state:
+    st.session_state.api_result = None
+
+def call_hf_api(text, model_name):
+    """Call HF API from Python instead of JavaScript"""
+    token = bert_token if model_name == "bert" else distilbert_token
+    model_id = bert_model if model_name == "bert" else distilbert_model
+
+    if not token or not model_id:
+        return None, "Model not configured"
+
+    headers = {"Authorization": f"Bearer {token}"}
+    api_url = f"https://api-inference.huggingface.co/models/{model_id}"
+
+    try:
+        response = requests.post(
+            api_url,
+            headers=headers,
+            json={"inputs": text},
+            timeout=30
+        )
+
+        if response.status_code == 200:
+            hf_data = response.json()
+
+            if isinstance(hf_data, list) and len(hf_data) > 0:
+                scores = hf_data[0] if isinstance(hf_data[0], list) else hf_data
+                if isinstance(scores, list) and len(scores) > 0:
+                    sorted_scores = sorted(scores, key=lambda x: x['score'], reverse=True)
+                    top = sorted_scores[0]
+
+                    confidence = round(top['score'] * 100)
+                    label = top['label'].upper()
+                    is_phishing = label in ['PHISHING', 'SMISHING', '2']
+
+                    return {
+                        'prediction': label,
+                        'confidence': confidence,
+                        'is_phishing': is_phishing
+                    }, None
+
+        return None, f"API error: {response.status_code}"
+    except Exception as e:
+        return None, str(e)
+
+# Hidden input for JavaScript to send messages
+col1, col2 = st.columns([1, 20])
+with col1:
+    pass
+with col2:
+    message_input = st.text_input("", key="phishing_message", label_visibility="collapsed", placeholder="Message from JS")
+
+# Process API call if new message
+if message_input and message_input != st.session_state.get('last_processed', ''):
+    st.session_state.last_processed = message_input
+    model = st.session_state.get('selected_model', default_model)
+    result, error = call_hf_api(message_input, model)
+    st.session_state.api_result = {'result': result, 'error': error}
+
+# Create JSON data for JavaScript
+api_data = st.session_state.api_result if st.session_state.api_result else {'result': None, 'error': None}
+api_json = json.dumps(api_data)
 
 html_content = """
 <!DOCTYPE html>
@@ -1291,39 +1357,37 @@ async function sendMessage() {
   senderDiv.scrollTop = senderDiv.scrollHeight;
   playSendSound();
 
-  // Call HF Inference API for detection
-  try {
-    const modelSelect = document.getElementById('modelSelect');
-    const selectedModel = modelSelect.value || appConfig.default_model;
-    const token = selectedModel === 'bert' ? appConfig.bert_token : appConfig.distilbert_token;
-    const modelId = selectedModel === 'bert' ? appConfig.bert_model : appConfig.distilbert_model;
+  // Submit message to Python for detection
+  const modelSelect = document.getElementById('modelSelect');
+  const selectedModel = modelSelect.value || appConfig.default_model;
 
-    const response = await fetch(`https://api-inference.huggingface.co/models/${modelId}`, {
-      method: 'POST',
-      headers: {'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json'},
-      body: JSON.stringify({inputs: text})
-    });
-    const hfData = await response.json();
+  // Send to Python backend
+  submitMessageToPython(text, selectedModel);
 
+  // Wait briefly for Python to process, then check result
+  setTimeout(() => {
+    // Get latest result from page data
+    const resultDiv = document.getElementById('apiResultData');
     let phish = false;
     let confidence = 0;
 
-    if (Array.isArray(hfData) && hfData.length > 0) {
-      const scores = Array.isArray(hfData[0]) ? hfData[0] : hfData;
-      if (Array.isArray(scores) && scores.length > 0) {
-        const sorted = scores.sort((a, b) => b.score - a.score);
-        const top = sorted[0];
-        confidence = Math.round(top.score * 100);
-        const label = top.label.toUpperCase();
-        phish = label === 'PHISHING' || label === 'SMISHING' || label === '2';
+    if (resultDiv && resultDiv.textContent) {
+      try {
+        const data = JSON.parse(resultDiv.textContent);
+        if (data.result) {
+          phish = data.result.is_phishing || false;
+          confidence = data.result.confidence || 0;
+
+          if (phish) playSmishingAlert();
+
+          document.getElementById('confidenceScore').textContent = confidence + '%';
+          document.getElementById('predictionStatus').textContent = phish ? 'Smishing' : 'Safe';
+          document.getElementById('predictionStatus').style.color = phish ? '#ef4444' : '#22c55e';
+        }
+      } catch (e) {
+        console.error('Parse error:', e);
       }
     }
-
-    if (phish) playSmishingAlert();
-
-    document.getElementById('confidenceScore').textContent = confidence + '%';
-    document.getElementById('predictionStatus').textContent = phish ? 'Smishing' : 'Safe';
-    document.getElementById('predictionStatus').style.color = phish ? '#ef4444' : '#22c55e';
 
     // Add to receiver
     const receiverDiv = document.getElementById('receiverMessages');
@@ -1339,11 +1403,7 @@ async function sendMessage() {
     </div>`;
     receiverDiv.insertAdjacentHTML('beforeend', receivedMsg);
     receiverDiv.scrollTop = receiverDiv.scrollHeight;
-  } catch (error) {
-    console.error('API error:', error);
-    document.getElementById('predictionStatus').textContent = 'Error';
-    document.getElementById('confidenceScore').textContent = '0%';
-  }
+  }, 500);
 
   inp.value = '';
   document.getElementById('phoneKeyboard').classList.remove('active');
@@ -1368,26 +1428,26 @@ async function sendReceiverMessage() {
   receiverDiv.scrollTop = receiverDiv.scrollHeight;
   playSendSound();
 
-  // Call HF Inference API for detection
-  try {
-    const modelSelect = document.getElementById('modelSelect');
-    const selectedModel = modelSelect.value || appConfig.default_model;
-    const token = selectedModel === 'bert' ? appConfig.bert_token : appConfig.distilbert_token;
-    const modelId = selectedModel === 'bert' ? appConfig.bert_model : appConfig.distilbert_model;
+  // Submit message to Python for detection
+  const modelSelect = document.getElementById('modelSelect');
+  const selectedModel = modelSelect.value || appConfig.default_model;
 
-    const response = await fetch(`https://api-inference.huggingface.co/models/${modelId}`, {
-      method: 'POST',
-      headers: {'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json'},
-      body: JSON.stringify({inputs: text})
-    });
-    const hfData = await response.json();
+  // Send to Python backend
+  submitMessageToPython(text, selectedModel);
 
+  // Wait briefly for Python to process
+  setTimeout(() => {
+    const resultDiv = document.getElementById('apiResultData');
     let confidence = 0;
-    if (Array.isArray(hfData) && hfData.length > 0) {
-      const scores = Array.isArray(hfData[0]) ? hfData[0] : hfData;
-      if (Array.isArray(scores) && scores.length > 0) {
-        const top = scores.sort((a, b) => b.score - a.score)[0];
-        confidence = Math.round(top.score * 100);
+
+    if (resultDiv && resultDiv.textContent) {
+      try {
+        const data = JSON.parse(resultDiv.textContent);
+        if (data.result) {
+          confidence = data.result.confidence || 0;
+        }
+      } catch (e) {
+        console.error('Parse error:', e);
       }
     }
 
@@ -1406,11 +1466,7 @@ async function sendReceiverMessage() {
     </div>`;
     senderDiv.insertAdjacentHTML('beforeend', receivedMsg);
     senderDiv.scrollTop = senderDiv.scrollHeight;
-  } catch (error) {
-    console.error('API error:', error);
-    document.getElementById('predictionStatus').textContent = 'Error';
-    document.getElementById('confidenceScore').textContent = '0%';
-  }
+  }, 500);
 
   inp.value = '';
   document.getElementById('receiverKeyboard').classList.remove('active');
@@ -1647,7 +1703,7 @@ document.addEventListener('click', hideKeyboard);
 </html>
 """
 
-# Inject config into HTML
+# Inject config and API data into HTML
 config_js = f"""
 const appConfig = {{
   bert_token: '{bert_token}',
@@ -1656,7 +1712,21 @@ const appConfig = {{
   distilbert_model: '{distilbert_model}',
   default_model: '{default_model}'
 }};
+const apiResult = {api_json};
+
+function submitMessageToPython(text, model) {{
+  const input = document.querySelector('input[data-testid="TextInput"]');
+  if (input) {{
+    input.value = text;
+    input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+    input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+  }}
+}}
 """
 html_content = html_content.replace('// CONFIG_PLACEHOLDER', config_js)
+
+# Add hidden data div before closing body tag
+hidden_div = f'<div id="apiResultData" style="display:none;">{api_json}</div>'
+html_content = html_content.replace('</body>', f'{hidden_div}\n</body>')
 
 html(html_content, height=1600)
