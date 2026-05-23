@@ -1,6 +1,5 @@
 import streamlit as st
 from streamlit.components.v1 import html
-import requests
 
 st.set_page_config(page_title="SMS Phishing Detection", layout="wide", initial_sidebar_state="collapsed")
 
@@ -16,44 +15,39 @@ if 'api_result' not in st.session_state:
     st.session_state.api_result = None
 
 def call_hf_api(text, model_name):
-    """Call HF API from Python instead of JavaScript"""
+    """Call HF API using huggingface_hub InferenceClient"""
     token = bert_token if model_name == "bert" else distilbert_token
     model_id = bert_model if model_name == "bert" else distilbert_model
 
     if not token or not model_id:
         return None, "Model not configured"
 
-    headers = {"Authorization": f"Bearer {token}"}
-    api_url = f"https://api-inference.huggingface.co/models/{model_id}"
-
     try:
-        response = requests.post(
-            api_url,
-            headers=headers,
-            json={"inputs": text},
-            timeout=30
-        )
+        from huggingface_hub import InferenceClient
+        client = InferenceClient(model=model_id, token=token)
+        result = client.text_classification(text)
 
-        if response.status_code == 200:
-            hf_data = response.json()
+        if result and len(result) > 0:
+            sorted_scores = sorted(result, key=lambda x: x['score'] if isinstance(x, dict) else x.score, reverse=True)
+            top = sorted_scores[0]
 
-            if isinstance(hf_data, list) and len(hf_data) > 0:
-                scores = hf_data[0] if isinstance(hf_data[0], list) else hf_data
-                if isinstance(scores, list) and len(scores) > 0:
-                    sorted_scores = sorted(scores, key=lambda x: x['score'], reverse=True)
-                    top = sorted_scores[0]
+            if isinstance(top, dict):
+                label = top['label'].upper()
+                score = top['score']
+            else:
+                label = top.label.upper()
+                score = top.score
 
-                    confidence = round(top['score'] * 100)
-                    label = top['label'].upper()
-                    is_phishing = label in ['PHISHING', 'SMISHING', '2']
+            confidence = round(score * 100)
+            is_phishing = label in ['PHISHING', 'SMISHING', '2', 'LABEL_1']
 
-                    return {
-                        'prediction': label,
-                        'confidence': confidence,
-                        'is_phishing': is_phishing
-                    }, None
+            return {
+                'prediction': label,
+                'confidence': confidence,
+                'is_phishing': is_phishing
+            }, None
 
-        return None, f"API error: {response.status_code}"
+        return None, "No result from model"
     except Exception as e:
         return None, str(e)
 
