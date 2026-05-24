@@ -1376,7 +1376,7 @@ async function sendMessage() {
   playSendSound();
 
   // Submit message to Python for detection
-  submitMessageToPython(text, document.getElementById('modelSelect').value);
+  submitMessageToPython(text, document.getElementById('modelSelect').value, 'sender');
 
   // Add to receiver (flag will update after API processes)
   setTimeout(() => {
@@ -1420,7 +1420,7 @@ async function sendReceiverMessage() {
   playSendSound();
 
   // Submit message to Python for detection
-  submitMessageToPython(text, document.getElementById('modelSelect').value);
+  submitMessageToPython(text, document.getElementById('modelSelect').value, 'receiver');
 
   // Add to sender (receiver messages don't get flagged, always safe)
   setTimeout(() => {
@@ -1699,11 +1699,13 @@ def phishing_form_fragment():
     with st.form("phishing_form", clear_on_submit=True):
         message = st.text_input("hidden_msg", label_visibility="collapsed", placeholder="PHISH_INPUT_TARGET")
         model_input = st.text_input("hidden_model", label_visibility="collapsed", placeholder="MODEL_INPUT_TARGET")
+        direction_input = st.text_input("hidden_direction", label_visibility="collapsed", placeholder="DIRECTION_INPUT_TARGET")
         submit = st.form_submit_button("PHISH_SUBMIT_BTN")
 
         if submit and message:
             model_to_use = model_input.strip() if model_input and model_input.strip() in ("bert", "distilbert") else st.session_state.current_model
             st.session_state.current_model = model_to_use
+            direction = direction_input.strip() if direction_input and direction_input.strip() in ("sender", "receiver") else "sender"
             with st.spinner("Analyzing..."):
                 result, _ = detect_phishing(message, model_to_use)
 
@@ -1714,7 +1716,7 @@ def phishing_form_fragment():
                 ampm = random.choice(['AM', 'PM'])
                 ts = f"{hour}:{minute:02d} {ampm}"
                 st.session_state.last_result = result
-                st.session_state.messages.append({'text': message, 'result': result, 'time': ts})
+                st.session_state.messages.append({'text': message, 'result': result, 'time': ts, 'direction': direction})
                 st.rerun()
 
 phishing_form_fragment()
@@ -1733,8 +1735,15 @@ for msg in messages_data:
     else:
         flag = ''
     ts = msg.get('time', '')
-    sender_msgs_html += f'''<div class="message sent"><div class="message-group"><div class="bubble">{msg['text']}</div><div class="timestamp">{ts} ✓✓</div></div></div>'''
-    receiver_msgs_html += f'''<div class="message received"><div class="avatar">?</div><div class="message-group"><div style="display:flex;align-items:center;gap:8px;"><div class="bubble">{msg['text']}</div>{flag}</div><div class="timestamp">{ts}</div></div></div>'''
+    direction = msg.get('direction', 'sender')
+    if direction == 'sender':
+        # Sender typed → sent on sender phone (right), received on receiver phone (left, with flag)
+        sender_msgs_html += f'''<div class="message sent"><div class="message-group"><div class="bubble">{msg['text']}</div><div class="timestamp">{ts} ✓✓</div></div></div>'''
+        receiver_msgs_html += f'''<div class="message received"><div class="avatar">?</div><div class="message-group"><div style="display:flex;align-items:center;gap:8px;"><div class="bubble">{msg['text']}</div>{flag}</div><div class="timestamp">{ts}</div></div></div>'''
+    else:
+        # Receiver typed → sent on receiver phone (right), received on sender phone (left)
+        receiver_msgs_html += f'''<div class="message sent"><div class="message-group"><div class="bubble">{msg['text']}</div><div class="timestamp">{ts} ✓✓</div></div></div>'''
+        sender_msgs_html += f'''<div class="message received"><div class="avatar">?</div><div class="message-group"><div class="bubble">{msg['text']}</div><div class="timestamp">{ts}</div></div></div>'''
 
 # Risk level
 risk_level = "High Risk" if result_data['prediction'] == 'Smishing' else ("Medium Risk" if result_data['prediction'] == 'Spam' else ("Low Risk" if result_data['prediction'] == 'Legitimate' else "Waiting"))
@@ -1814,12 +1823,13 @@ window.addEventListener('load', function() {{
 }});
 
 // Bridge: send phone chat to Streamlit hidden input
-function submitMessageToPython(text, model) {{
+function submitMessageToPython(text, model, direction) {{
   try {{
     const parentDoc = window.parent.document;
     const nativeSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype, 'value').set;
     const msgInput = parentDoc.querySelector('input[placeholder="PHISH_INPUT_TARGET"]');
     const modelInput = parentDoc.querySelector('input[placeholder="MODEL_INPUT_TARGET"]');
+    const dirInput = parentDoc.querySelector('input[placeholder="DIRECTION_INPUT_TARGET"]');
     if (msgInput) {{
       nativeSetter.call(msgInput, text);
       msgInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
@@ -1827,6 +1837,10 @@ function submitMessageToPython(text, model) {{
     if (modelInput) {{
       nativeSetter.call(modelInput, model || 'bert');
       modelInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+    }}
+    if (dirInput) {{
+      nativeSetter.call(dirInput, direction || 'sender');
+      dirInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
     }}
     setTimeout(() => {{
       const buttons = parentDoc.querySelectorAll('button');
