@@ -1210,30 +1210,14 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
       <option value="distilbert">⚡ DistilBERT</option>
     </select>
     <div class="model-info">
-      <div class="model-info-row">
-        <span class="info-label">Accuracy</span>
-        <span class="info-value" id="infoAccuracy">98.2%</span>
-      </div>
-      <div class="model-info-row">
-        <span class="info-label">Speed</span>
-        <span class="info-value" id="infoSpeed">~120ms</span>
-      </div>
-      <div class="model-info-row">
-        <span class="info-label">Parameters</span>
-        <span class="info-value" id="infoParams">110M</span>
-      </div>
-      <div class="model-info-row">
-        <span class="info-label">Type</span>
-        <span class="info-value" id="infoType">Transformer</span>
-      </div>
       <div class="model-status">
         <span class="model-dot"></span> Model Ready
       </div>
     </div>
     <div style="border-top: 1px solid #333; margin-top: 16px; padding-top: 16px;">
       <label style="display: block; font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">Prediction Status</label>
-      <div style="background: linear-gradient(135deg, #1e3a1f 0%, #2d5a32 100%); border-radius: 12px; padding: 16px; text-align: center; margin-bottom: 16px; border: 1px solid #22c55e;">
-        <div style="font-size: 28px; font-weight: 700; color: #22c55e; margin-bottom: 8px;" id="predictionStatus">Safe</div>
+      <div style="background: linear-gradient(135deg, #3a2818 0%, #5a3c22 100%); border-radius: 12px; padding: 16px; text-align: center; margin-bottom: 16px; border: 1px solid #f59e0b;">
+        <div style="font-size: 28px; font-weight: 700; color: #f59e0b; margin-bottom: 8px;" id="predictionStatus">Waiting</div>
       </div>
       <label style="display: block; font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">Confidence Score</label>
       <div style="background: linear-gradient(135deg, #1e2a3a 0%, #1e3a5a 100%); border-radius: 12px; padding: 16px; text-align: center; border: 1px solid #3b82f6; margin-bottom: 16px;">
@@ -1755,14 +1739,6 @@ window.addEventListener('load', function() {{
     ps.textContent = '{prediction_text}';
     ps.style.color = '{ps_color}';
   }}
-  const ia = document.getElementById('infoAccuracy');
-  const isp = document.getElementById('infoSpeed');
-  const ipa = document.getElementById('infoParams');
-  const ity = document.getElementById('infoType');
-  if (isp) isp.textContent = '{real_speed}';
-  if (ipa) ipa.textContent = '{real_params}';
-  if (ity) ity.textContent = '{real_type}';
-  if (ia) ia.parentElement.style.display = 'none';
   if (psBox) {{
     psBox.style.background = '{ps_bg}';
     psBox.style.border = '1px solid {ps_border}';
