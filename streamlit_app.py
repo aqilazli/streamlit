@@ -1391,7 +1391,7 @@ async function sendMessage() {
   }, 50);
 
   inp.value = '';
-  document.getElementById('phoneKeyboard').classList.remove('active');
+  inp.focus();
 }
 
 async function sendReceiverMessage() {
@@ -1435,7 +1435,7 @@ async function sendReceiverMessage() {
   }, 50);
 
   inp.value = '';
-  document.getElementById('receiverKeyboard').classList.remove('active');
+  inp.focus();
 }
 
 function addReceiverChar(c) {
@@ -1790,6 +1790,12 @@ window.addEventListener('load', function() {{
   // Play alert if phishing detected
   if ({("true" if is_phishing else "false")}) {{
     try {{ playSmishingAlert(); }} catch(e) {{}}
+  }}
+  // Auto-focus sender input so user can keep chatting without re-clicking
+  const senderInp = document.getElementById('senderInput');
+  if (senderInp) {{
+    senderInp.focus();
+    showKeyboard();
   }}
 }});
 
