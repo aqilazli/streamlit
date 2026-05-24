@@ -44,7 +44,15 @@ def detect_phishing(text):
     except Exception as e:
         return None, str(e)
 
-api_json = "{}"
+# Process form input FIRST (before rendering HTML)
+if 'messages' not in st.session_state:
+    st.session_state.messages = []
+if 'last_result' not in st.session_state:
+    st.session_state.last_result = {'prediction': 'Waiting', 'confidence': 0, 'is_phishing': False}
+
+# Get result to inject into HTML
+result_data = st.session_state.last_result
+messages_data = st.session_state.messages
 
 html_content = """
 <!DOCTYPE html>
@@ -1627,41 +1635,87 @@ document.addEventListener('click', hideKeyboard);
 </html>
 """
 
+# Detection form (process BEFORE rendering HTML so results inject)
+st.markdown("### 💬 Send Message")
+with st.form("phishing_form", clear_on_submit=True):
+    col1, col2 = st.columns([5, 1])
+    with col1:
+        message = st.text_input("Type message:", label_visibility="collapsed", placeholder="Type a message to send & check...")
+    with col2:
+        submit = st.form_submit_button("Send", use_container_width=True)
+
+    if submit and message:
+        with st.spinner("Analyzing..."):
+            result, error = detect_phishing(message)
+
+        if result:
+            st.session_state.last_result = result
+            st.session_state.messages.append({'text': message, 'result': result})
+            result_data = result
+            messages_data = st.session_state.messages
+        else:
+            st.error(f"Error: {error}")
+
+# Build messages HTML for sender/receiver
+sender_msgs_html = ""
+receiver_msgs_html = ""
+for msg in messages_data:
+    is_phish = msg['result']['is_phishing']
+    flag = '<span style="font-size:28px;line-height:1;" title="DETECTED">🚩</span>' if is_phish else ''
+    sender_msgs_html += f'''<div class="message sent"><div class="message-group"><div class="bubble">{msg['text']}</div><div class="timestamp">{msg['result']['prediction']} ✓✓</div></div></div>'''
+    receiver_msgs_html += f'''<div class="message received"><div class="avatar">?</div><div class="message-group"><div style="display:flex;align-items:center;gap:8px;"><div class="bubble">{msg['text']}</div>{flag}</div><div class="timestamp">{msg['result']['prediction']}</div></div></div>'''
+
+# Risk level
+risk_level = "High Risk" if result_data['prediction'] == 'Smishing' else ("Medium Risk" if result_data['prediction'] == 'Spam' else ("Low Risk" if result_data['prediction'] == 'Legitimate' else "Waiting"))
+
 # Remove placeholder
 html_content = html_content.replace('// CONFIG_PLACEHOLDER', '')
+
+# Inject prediction result into HTML
+prediction_text = result_data['prediction']
+confidence_val = result_data['confidence']
+is_phishing = result_data['is_phishing']
+status_color = '#ef4444' if is_phishing else '#22c55e'
+
+import json as json_lib
+sender_json = json_lib.dumps(sender_msgs_html)
+receiver_json = json_lib.dumps(receiver_msgs_html)
+
+inject_script = f'''
+<script>
+window.addEventListener('load', function() {{
+  const ps = document.getElementById('predictionStatus');
+  const cs = document.getElementById('confidenceScore');
+  if (ps) {{
+    ps.textContent = '{prediction_text}';
+    ps.style.color = '{status_color}';
+  }}
+  if (cs) cs.textContent = '{confidence_val}%';
+  const sm = document.getElementById('senderMessages');
+  if (sm) sm.innerHTML = {sender_json};
+  const rm = document.getElementById('receiverMessages');
+  if (rm) rm.innerHTML = {receiver_json};
+}});
+</script>
+'''
+html_content = html_content.replace('</body>', f'{inject_script}</body>')
 
 # Render UI
 html(html_content, height=1600)
 
-# Detection form
-st.markdown("---")
-st.subheader("🔍 Check Message for Phishing")
-
-with st.form("phishing_form"):
-    message = st.text_area("Enter message to check:", placeholder="Paste SMS or message text here")
-    submit = st.form_submit_button("Detect Phishing", use_container_width=True)
-
-    if submit and message:
-        with st.spinner("Loading model and analyzing..."):
-            result, error = detect_phishing(message)
-
-        if result:
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                if result['is_phishing']:
-                    if result['prediction'] == 'Smishing':
-                        st.metric("Status", "🚩 SMISHING")
-                    else:
-                        st.metric("Status", "⚠️ SPAM")
-                else:
-                    st.metric("Status", "✅ SAFE")
-            with col2:
-                st.metric("Confidence", f"{result['confidence']}%")
-            with col3:
-                risk = "High Risk" if result['prediction'] == 'Smishing' else ("Medium Risk" if result['prediction'] == 'Spam' else "Low Risk")
-                st.metric("Risk Level", risk)
-
-            if result['prediction'] == 'Smishing':
-                st.error("⚠️ Advice: Do not click suspicious links or share personal information!")
+# Show extra info below
+if result_data['prediction'] != 'Waiting':
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if is_phishing:
+            icon = "🚩" if prediction_text == 'Smishing' else "⚠️"
+            st.metric("Status", f"{icon} {prediction_text.upper()}")
         else:
-            st.error(f"Error: {error}")
+            st.metric("Status", f"✅ {prediction_text.upper()}")
+    with col2:
+        st.metric("Confidence", f"{confidence_val}%")
+    with col3:
+        st.metric("Risk Level", risk_level)
+
+    if prediction_text == 'Smishing':
+        st.error("⚠️ Do not click suspicious links or share personal information!")
