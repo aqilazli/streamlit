@@ -1698,16 +1698,34 @@ import json as json_lib
 sender_json = json_lib.dumps(sender_msgs_html)
 receiver_json = json_lib.dumps(receiver_msgs_html)
 
+if prediction_text == "Waiting":
+    ps_color = "#f59e0b"
+    ps_bg = "linear-gradient(135deg, #3a2818 0%, #5a3c22 100%)"
+    ps_border = "#f59e0b"
+elif prediction_text in ["Spam", "Smishing"]:
+    ps_color = "#ef4444"
+    ps_bg = "linear-gradient(135deg, #3a1818 0%, #5a2222 100%)"
+    ps_border = "#ef4444"
+else:
+    ps_color = "#22c55e"
+    ps_bg = "linear-gradient(135deg, #1e3a1f 0%, #2d5a32 100%)"
+    ps_border = "#22c55e"
+
 inject_script = f'''
 <script>
 window.addEventListener('load', function() {{
   const ps = document.getElementById('predictionStatus');
+  const psBox = ps ? ps.parentElement : null;
   const cs = document.getElementById('confidenceScore');
   const rl = document.getElementById('riskLevel');
   const ua = document.getElementById('userAdvice');
   if (ps) {{
     ps.textContent = '{prediction_text}';
-    ps.style.color = '{status_color}';
+    ps.style.color = '{ps_color}';
+  }}
+  if (psBox) {{
+    psBox.style.background = '{ps_bg}';
+    psBox.style.border = '1px solid {ps_border}';
   }}
   if (cs) cs.textContent = '{confidence_val}%';
   if (rl) {{
