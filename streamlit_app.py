@@ -1303,7 +1303,7 @@ function toggleDarkModeUI() {
 document.addEventListener('DOMContentLoaded', function() {
   setTimeout(function() {
     const darkModeSaved = localStorage.getItem('darkMode');
-    const darkModeEnabled = darkModeSaved === null ? true : darkModeSaved === 'true';
+    const darkModeEnabled = darkModeSaved === null ? false : darkModeSaved === 'true';
     const toggle = document.getElementById('darkModeToggle');
     if (toggle) {
       toggle.checked = darkModeEnabled;
@@ -1647,19 +1647,22 @@ div[data-testid="stForm"] {
 """, unsafe_allow_html=True)
 
 # Hidden form - JS will trigger this
-with st.form("phishing_form", clear_on_submit=True):
-    message = st.text_input("hidden_msg", label_visibility="collapsed", placeholder="PHISH_INPUT_TARGET")
-    submit = st.form_submit_button("PHISH_SUBMIT_BTN")
+@st.fragment
+def phishing_form_fragment():
+    with st.form("phishing_form", clear_on_submit=True):
+        message = st.text_input("hidden_msg", label_visibility="collapsed", placeholder="PHISH_INPUT_TARGET")
+        submit = st.form_submit_button("PHISH_SUBMIT_BTN")
 
-    if submit and message:
-        with st.spinner("Analyzing..."):
-            result, error = detect_phishing(message)
+        if submit and message:
+            with st.spinner("Analyzing..."):
+                result, _ = detect_phishing(message)
 
-        if result:
-            st.session_state.last_result = result
-            st.session_state.messages.append({'text': message, 'result': result})
-            result_data = result
-            messages_data = st.session_state.messages
+            if result:
+                st.session_state.last_result = result
+                st.session_state.messages.append({'text': message, 'result': result})
+                st.rerun()
+
+phishing_form_fragment()
 
 # Build messages HTML for sender/receiver
 sender_msgs_html = ""
@@ -1667,8 +1670,8 @@ receiver_msgs_html = ""
 for msg in messages_data:
     is_phish = msg['result']['is_phishing']
     flag = '<span style="font-size:28px;line-height:1;" title="DETECTED">🚩</span>' if is_phish else ''
-    sender_msgs_html += f'''<div class="message sent"><div class="message-group"><div class="bubble">{msg['text']}</div><div class="timestamp">{msg['result']['prediction']} ✓✓</div></div></div>'''
-    receiver_msgs_html += f'''<div class="message received"><div class="avatar">?</div><div class="message-group"><div style="display:flex;align-items:center;gap:8px;"><div class="bubble">{msg['text']}</div>{flag}</div><div class="timestamp">{msg['result']['prediction']}</div></div></div>'''
+    sender_msgs_html += f'''<div class="message sent"><div class="message-group"><div class="bubble">{msg['text']}</div><div class="timestamp">✓✓</div></div></div>'''
+    receiver_msgs_html += f'''<div class="message received"><div class="avatar">?</div><div class="message-group"><div style="display:flex;align-items:center;gap:8px;"><div class="bubble">{msg['text']}</div>{flag}</div></div></div>'''
 
 # Risk level
 risk_level = "High Risk" if result_data['prediction'] == 'Smishing' else ("Medium Risk" if result_data['prediction'] == 'Spam' else ("Low Risk" if result_data['prediction'] == 'Legitimate' else "Waiting"))
