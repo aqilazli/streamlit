@@ -1,58 +1,50 @@
 import streamlit as st
 from streamlit.components.v1 import html
+import torch
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 st.set_page_config(page_title="SMS Phishing Detection", layout="wide", initial_sidebar_state="collapsed")
 
-# Load secrets or environment variables
-bert_token = st.secrets.get("BERT_TOKEN", "")
-bert_model = st.secrets.get("BERT_MODEL", "")
-distilbert_token = st.secrets.get("DISTILBERT_TOKEN", "")
-distilbert_model = st.secrets.get("DISTILBERT_MODEL", "")
-default_model = st.secrets.get("DEFAULT_MODEL", "bert")
+# Load secrets
+repo_id = st.secrets.get("MODEL_REPO_ID", "")
+token = st.secrets.get("HUGGINGFACE_HUB_TOKEN", "")
 
 # Initialize session state
-if 'api_result' not in st.session_state:
-    st.session_state.api_result = None
+if 'last_result' not in st.session_state:
+    st.session_state.last_result = None
+if 'last_message' not in st.session_state:
+    st.session_state.last_message = ""
 
-def call_hf_api(text, model_name):
-    """Call HF API using huggingface_hub InferenceClient"""
-    token = bert_token if model_name == "bert" else distilbert_token
-    model_id = bert_model if model_name == "bert" else distilbert_model
+@st.cache_resource
+def load_model():
+    tokenizer = AutoTokenizer.from_pretrained(repo_id, token=token)
+    model = AutoModelForSequenceClassification.from_pretrained(repo_id, token=token)
+    model.eval()
+    return tokenizer, model
 
-    if not token or not model_id:
-        return None, "Model not configured"
+label_map = {0: "Legitimate", 1: "Spam", 2: "Smishing"}
 
+def detect_phishing(text):
+    """Run inference on text"""
     try:
-        from huggingface_hub import InferenceClient
-        client = InferenceClient(model=model_id, token=token)
-        result = client.text_classification(text)
-
-        if result and len(result) > 0:
-            sorted_scores = sorted(result, key=lambda x: x['score'] if isinstance(x, dict) else x.score, reverse=True)
-            top = sorted_scores[0]
-
-            if isinstance(top, dict):
-                label = top['label'].upper()
-                score = top['score']
-            else:
-                label = top.label.upper()
-                score = top.score
-
-            confidence = round(score * 100)
-            is_phishing = label in ['PHISHING', 'SMISHING', '2', 'LABEL_1']
-
-            return {
-                'prediction': label,
-                'confidence': confidence,
-                'is_phishing': is_phishing
-            }, None
-
-        return None, "No result from model"
+        tokenizer, model = load_model()
+        inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=128)
+        with torch.no_grad():
+            outputs = model(**inputs)
+        probs = torch.softmax(outputs.logits, dim=1)
+        pred = torch.argmax(probs, dim=1).item()
+        prediction = label_map.get(pred, "Unknown")
+        confidence = round(probs[0][pred].item() * 100)
+        is_phishing = prediction in ["Smishing", "Spam"]
+        return {
+            'prediction': prediction,
+            'confidence': confidence,
+            'is_phishing': is_phishing
+        }, None
     except Exception as e:
         return None, str(e)
 
-# Render HTML UI first
-api_json = "{}"  # Placeholder
+api_json = "{}"
 
 html_content = """
 <!DOCTYPE html>
@@ -1641,28 +1633,35 @@ html_content = html_content.replace('// CONFIG_PLACEHOLDER', '')
 # Render UI
 html(html_content, height=1600)
 
-# Add detection form below UI
+# Detection form
 st.markdown("---")
 st.subheader("🔍 Check Message for Phishing")
 
 with st.form("phishing_form"):
     message = st.text_area("Enter message to check:", placeholder="Paste SMS or message text here")
-    model = st.selectbox("Model:", ["bert", "distilbert"])
     submit = st.form_submit_button("Detect Phishing", use_container_width=True)
 
     if submit and message:
-        with st.spinner("Analyzing..."):
-            result, error = call_hf_api(message, model)
+        with st.spinner("Loading model and analyzing..."):
+            result, error = detect_phishing(message)
 
         if result:
             col1, col2, col3 = st.columns(3)
             with col1:
-                status_icon = "🚩" if result['is_phishing'] else "✅"
-                status_text = "SMISHING" if result['is_phishing'] else "SAFE"
-                st.metric("Status", f"{status_icon} {status_text}")
+                if result['is_phishing']:
+                    if result['prediction'] == 'Smishing':
+                        st.metric("Status", "🚩 SMISHING")
+                    else:
+                        st.metric("Status", "⚠️ SPAM")
+                else:
+                    st.metric("Status", "✅ SAFE")
             with col2:
                 st.metric("Confidence", f"{result['confidence']}%")
             with col3:
-                st.metric("Type", result['prediction'])
+                risk = "High Risk" if result['prediction'] == 'Smishing' else ("Medium Risk" if result['prediction'] == 'Spam' else "Low Risk")
+                st.metric("Risk Level", risk)
+
+            if result['prediction'] == 'Smishing':
+                st.error("⚠️ Advice: Do not click suspicious links or share personal information!")
         else:
             st.error(f"Error: {error}")
