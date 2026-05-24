@@ -5,9 +5,12 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 st.set_page_config(page_title="SMS Phishing Detection", layout="wide", initial_sidebar_state="collapsed")
 
-# Load secrets
-repo_id = st.secrets.get("MODEL_REPO_ID", "")
-token = st.secrets.get("HUGGINGFACE_HUB_TOKEN", "")
+# Load secrets - supports two models (bert, distilbert)
+default_model = st.secrets.get("default_model", "bert")
+
+def get_model_config(name):
+    cfg = st.secrets.get(name, {})
+    return cfg.get("repo_id", ""), cfg.get("token", "")
 
 # Initialize session state
 if 'last_result' not in st.session_state or st.session_state.last_result is None:
@@ -16,19 +19,22 @@ if 'last_message' not in st.session_state:
     st.session_state.last_message = ""
 if 'messages' not in st.session_state:
     st.session_state.messages = []
+if 'current_model' not in st.session_state:
+    st.session_state.current_model = default_model
 
 @st.cache_resource
-def load_model():
+def load_model(model_name):
+    repo_id, token = get_model_config(model_name)
     tokenizer = AutoTokenizer.from_pretrained(repo_id, token=token)
     model = AutoModelForSequenceClassification.from_pretrained(repo_id, token=token)
     model.eval()
     return tokenizer, model
 
 @st.cache_data
-def get_model_info():
+def get_model_info(model_name):
     """Get real model info from loaded model"""
     try:
-        _, model = load_model()
+        _, model = load_model(model_name)
         params = model.num_parameters()
         params_str = f"{params/1e6:.0f}M" if params >= 1e6 else f"{params/1e3:.0f}K"
         model_type = model.config.model_type.upper() if hasattr(model.config, 'model_type') else "Unknown"
@@ -43,11 +49,11 @@ def get_model_info():
 
 label_map = {0: "Legitimate", 1: "Spam", 2: "Smishing"}
 
-def detect_phishing(text):
+def detect_phishing(text, model_name):
     """Run inference on text"""
     try:
         import time
-        tokenizer, model = load_model()
+        tokenizer, model = load_model(model_name)
         inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=128)
         start = time.time()
         with torch.no_grad():
@@ -73,7 +79,7 @@ messages_data = st.session_state.messages
 
 # Get real model info
 try:
-    model_info = get_model_info()
+    model_info = get_model_info(st.session_state.current_model)
     real_params = model_info['params']
     real_type = model_info['type']
     real_speed = f"~{st.session_state.get('last_speed', 0)}ms" if st.session_state.get('last_speed', 0) > 0 else "N/A"
@@ -1370,7 +1376,7 @@ async function sendMessage() {
   playSendSound();
 
   // Submit message to Python for detection
-  submitMessageToPython(text, 'bert');
+  submitMessageToPython(text, document.getElementById('modelSelect').value);
 
   // Add to receiver (flag will update after API processes)
   setTimeout(() => {
@@ -1414,7 +1420,7 @@ async function sendReceiverMessage() {
   playSendSound();
 
   // Submit message to Python for detection
-  submitMessageToPython(text, 'bert');
+  submitMessageToPython(text, document.getElementById('modelSelect').value);
 
   // Add to sender (receiver messages don't get flagged, always safe)
   setTimeout(() => {
@@ -1692,11 +1698,14 @@ header[data-testid="stHeader"] { height: 0 !important; display: none !important;
 def phishing_form_fragment():
     with st.form("phishing_form", clear_on_submit=True):
         message = st.text_input("hidden_msg", label_visibility="collapsed", placeholder="PHISH_INPUT_TARGET")
+        model_input = st.text_input("hidden_model", label_visibility="collapsed", placeholder="MODEL_INPUT_TARGET")
         submit = st.form_submit_button("PHISH_SUBMIT_BTN")
 
         if submit and message:
+            model_to_use = model_input.strip() if model_input and model_input.strip() in ("bert", "distilbert") else st.session_state.current_model
+            st.session_state.current_model = model_to_use
             with st.spinner("Analyzing..."):
-                result, _ = detect_phishing(message)
+                result, _ = detect_phishing(message, model_to_use)
 
             if result:
                 import random
@@ -1756,9 +1765,12 @@ else:
     ps_bg = "linear-gradient(135deg, #1e3a1f 0%, #2d5a32 100%)"
     ps_border = "#22c55e"
 
+current_model_js = st.session_state.current_model
 inject_script = f'''
 <script>
 window.addEventListener('load', function() {{
+  const sel = document.getElementById('modelSelect');
+  if (sel) sel.value = '{current_model_js}';
   const ps = document.getElementById('predictionStatus');
   const psBox = ps ? ps.parentElement : null;
   const cs = document.getElementById('confidenceScore');
@@ -1805,24 +1817,26 @@ window.addEventListener('load', function() {{
 function submitMessageToPython(text, model) {{
   try {{
     const parentDoc = window.parent.document;
-    const inputs = parentDoc.querySelectorAll('input[placeholder="PHISH_INPUT_TARGET"]');
-    if (inputs.length > 0) {{
-      const input = inputs[0];
-      const nativeSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype, 'value').set;
-      nativeSetter.call(input, text);
-      input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-
-      // Click submit button
-      setTimeout(() => {{
-        const buttons = parentDoc.querySelectorAll('button');
-        for (let btn of buttons) {{
-          if (btn.textContent.includes('PHISH_SUBMIT_BTN')) {{
-            btn.click();
-            break;
-          }}
-        }}
-      }}, 100);
+    const nativeSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype, 'value').set;
+    const msgInput = parentDoc.querySelector('input[placeholder="PHISH_INPUT_TARGET"]');
+    const modelInput = parentDoc.querySelector('input[placeholder="MODEL_INPUT_TARGET"]');
+    if (msgInput) {{
+      nativeSetter.call(msgInput, text);
+      msgInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
     }}
+    if (modelInput) {{
+      nativeSetter.call(modelInput, model || 'bert');
+      modelInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+    }}
+    setTimeout(() => {{
+      const buttons = parentDoc.querySelectorAll('button');
+      for (let btn of buttons) {{
+        if (btn.textContent.includes('PHISH_SUBMIT_BTN')) {{
+          btn.click();
+          break;
+        }}
+      }}
+    }}, 100);
   }} catch(e) {{
     console.log('Bridge error:', e);
   }}
