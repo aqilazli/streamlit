@@ -859,7 +859,7 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
 
         <div class="compose-field">
           <div class="compose-label">To:</div>
-          <input type="text" id="recipientField" class="compose-input" placeholder="Enter recipient" value="John">
+          <input type="text" id="recipientField" class="compose-input" placeholder="Enter recipient" value="Dr Lubani">
         </div>
 
         <div class="messages" id="senderMessages">
@@ -1683,8 +1683,13 @@ def phishing_form_fragment():
                 result, _ = detect_phishing(message)
 
             if result:
+                import random
+                hour = random.randint(1, 12)
+                minute = random.randint(0, 59)
+                ampm = random.choice(['AM', 'PM'])
+                ts = f"{hour}:{minute:02d} {ampm}"
                 st.session_state.last_result = result
-                st.session_state.messages.append({'text': message, 'result': result})
+                st.session_state.messages.append({'text': message, 'result': result, 'time': ts})
                 st.rerun()
 
 phishing_form_fragment()
@@ -1695,8 +1700,9 @@ receiver_msgs_html = '<div class="message received"><div class="avatar">?</div><
 for msg in messages_data:
     is_phish = msg['result']['is_phishing']
     flag = '<span style="font-size:28px;line-height:1;" title="DETECTED">🚩</span>' if is_phish else ''
-    sender_msgs_html += f'''<div class="message sent"><div class="message-group"><div class="bubble">{msg['text']}</div><div class="timestamp">✓✓</div></div></div>'''
-    receiver_msgs_html += f'''<div class="message received"><div class="avatar">?</div><div class="message-group"><div style="display:flex;align-items:center;gap:8px;"><div class="bubble">{msg['text']}</div>{flag}</div></div></div>'''
+    ts = msg.get('time', '')
+    sender_msgs_html += f'''<div class="message sent"><div class="message-group"><div class="bubble">{msg['text']}</div><div class="timestamp">{ts} ✓✓</div></div></div>'''
+    receiver_msgs_html += f'''<div class="message received"><div class="avatar">?</div><div class="message-group"><div style="display:flex;align-items:center;gap:8px;"><div class="bubble">{msg['text']}</div>{flag}</div><div class="timestamp">{ts}</div></div></div>'''
 
 # Risk level
 risk_level = "High Risk" if result_data['prediction'] == 'Smishing' else ("Medium Risk" if result_data['prediction'] == 'Spam' else ("Low Risk" if result_data['prediction'] == 'Legitimate' else "Waiting"))
@@ -1753,6 +1759,10 @@ window.addEventListener('load', function() {{
   if (sm) sm.innerHTML = {sender_json};
   const rm = document.getElementById('receiverMessages');
   if (rm) rm.innerHTML = {receiver_json};
+  // Play alert if phishing detected
+  if ({("true" if is_phishing else "false")}) {{
+    try {{ playSmishingAlert(); }} catch(e) {{}}
+  }}
 }});
 
 // Bridge: send phone chat to Streamlit hidden input
