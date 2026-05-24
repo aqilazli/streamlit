@@ -1631,14 +1631,25 @@ document.addEventListener('click', hideKeyboard);
 </html>
 """
 
-# Detection form (process BEFORE rendering HTML so results inject)
-st.markdown("### 💬 Send Message")
+# Hide form offscreen but keep functional (visibility hidden breaks interactions)
+st.markdown("""
+<style>
+div[data-testid="stForm"] {
+    position: fixed !important;
+    left: -9999px !important;
+    top: -9999px !important;
+    width: 1px !important;
+    height: 1px !important;
+    overflow: hidden !important;
+    opacity: 0 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# Hidden form - JS will trigger this
 with st.form("phishing_form", clear_on_submit=True):
-    col1, col2 = st.columns([5, 1])
-    with col1:
-        message = st.text_input("Type message:", label_visibility="collapsed", placeholder="Type a message to send & check...")
-    with col2:
-        submit = st.form_submit_button("Send", use_container_width=True)
+    message = st.text_input("hidden_msg", label_visibility="collapsed", placeholder="PHISH_INPUT_TARGET")
+    submit = st.form_submit_button("PHISH_SUBMIT_BTN")
 
     if submit and message:
         with st.spinner("Analyzing..."):
@@ -1649,8 +1660,6 @@ with st.form("phishing_form", clear_on_submit=True):
             st.session_state.messages.append({'text': message, 'result': result})
             result_data = result
             messages_data = st.session_state.messages
-        else:
-            st.error(f"Error: {error}")
 
 # Build messages HTML for sender/receiver
 sender_msgs_html = ""
@@ -1692,6 +1701,33 @@ window.addEventListener('load', function() {{
   const rm = document.getElementById('receiverMessages');
   if (rm) rm.innerHTML = {receiver_json};
 }});
+
+// Bridge: send phone chat to Streamlit hidden input
+function submitMessageToPython(text, model) {{
+  try {{
+    const parentDoc = window.parent.document;
+    const inputs = parentDoc.querySelectorAll('input[placeholder="PHISH_INPUT_TARGET"]');
+    if (inputs.length > 0) {{
+      const input = inputs[0];
+      const nativeSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype, 'value').set;
+      nativeSetter.call(input, text);
+      input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+
+      // Click submit button
+      setTimeout(() => {{
+        const buttons = parentDoc.querySelectorAll('button');
+        for (let btn of buttons) {{
+          if (btn.textContent.includes('PHISH_SUBMIT_BTN')) {{
+            btn.click();
+            break;
+          }}
+        }}
+      }}, 100);
+    }}
+  }} catch(e) {{
+    console.log('Bridge error:', e);
+  }}
+}}
 </script>
 '''
 html_content = html_content.replace('</body>', f'{inject_script}</body>')
