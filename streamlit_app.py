@@ -24,20 +24,41 @@ def load_model():
     model.eval()
     return tokenizer, model
 
+@st.cache_data
+def get_model_info():
+    """Get real model info from loaded model"""
+    try:
+        _, model = load_model()
+        params = model.num_parameters()
+        params_str = f"{params/1e6:.0f}M" if params >= 1e6 else f"{params/1e3:.0f}K"
+        model_type = model.config.model_type.upper() if hasattr(model.config, 'model_type') else "Unknown"
+        arch = model.config.architectures[0] if hasattr(model.config, 'architectures') and model.config.architectures else model_type
+        return {
+            'params': params_str,
+            'type': arch,
+            'model_type': model_type
+        }
+    except Exception:
+        return {'params': 'N/A', 'type': 'N/A', 'model_type': 'N/A'}
+
 label_map = {0: "Legitimate", 1: "Spam", 2: "Smishing"}
 
 def detect_phishing(text):
     """Run inference on text"""
     try:
+        import time
         tokenizer, model = load_model()
         inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=128)
+        start = time.time()
         with torch.no_grad():
             outputs = model(**inputs)
+        elapsed_ms = round((time.time() - start) * 1000)
         probs = torch.softmax(outputs.logits, dim=1)
         pred = torch.argmax(probs, dim=1).item()
         prediction = label_map.get(pred, "Unknown")
         confidence = round(probs[0][pred].item() * 100)
         is_phishing = prediction in ["Smishing", "Spam"]
+        st.session_state.last_speed = elapsed_ms
         return {
             'prediction': prediction,
             'confidence': confidence,
@@ -49,6 +70,17 @@ def detect_phishing(text):
 # Get result to inject into HTML
 result_data = st.session_state.last_result
 messages_data = st.session_state.messages
+
+# Get real model info
+try:
+    model_info = get_model_info()
+    real_params = model_info['params']
+    real_type = model_info['type']
+    real_speed = f"~{st.session_state.get('last_speed', 0)}ms" if st.session_state.get('last_speed', 0) > 0 else "N/A"
+except Exception:
+    real_params = "N/A"
+    real_type = "N/A"
+    real_speed = "N/A"
 
 html_content = """
 <!DOCTYPE html>
@@ -827,7 +859,7 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
 
         <div class="compose-field">
           <div class="compose-label">To:</div>
-          <input type="text" id="recipientField" class="compose-input" placeholder="Enter recipient" value="john">
+          <input type="text" id="recipientField" class="compose-input" placeholder="Enter recipient" value="John">
         </div>
 
         <div class="messages" id="senderMessages">
@@ -1204,8 +1236,8 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
         <div style="font-size: 28px; font-weight: 700; color: #22c55e; margin-bottom: 8px;" id="predictionStatus">Safe</div>
       </div>
       <label style="display: block; font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">Confidence Score</label>
-      <div style="background: linear-gradient(135deg, #1e3a1f 0%, #2d5a32 100%); border-radius: 12px; padding: 16px; text-align: center; border: 1px solid #22c55e; margin-bottom: 16px;">
-        <div style="font-size: 48px; font-weight: 700; color: #22c55e; margin-bottom: 4px;" id="confidenceScore">0%</div>
+      <div style="background: linear-gradient(135deg, #1e2a3a 0%, #1e3a5a 100%); border-radius: 12px; padding: 16px; text-align: center; border: 1px solid #3b82f6; margin-bottom: 16px;">
+        <div style="font-size: 48px; font-weight: 700; color: #3b82f6; margin-bottom: 4px;" id="confidenceScore">0%</div>
       </div>
       <label style="display: block; font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">Risk Level</label>
       <div style="background: linear-gradient(135deg, #3a2818 0%, #5a3c22 100%); border-radius: 12px; padding: 16px; text-align: center; border: 1px solid #f59e0b; margin-bottom: 16px;">
@@ -1723,6 +1755,14 @@ window.addEventListener('load', function() {{
     ps.textContent = '{prediction_text}';
     ps.style.color = '{ps_color}';
   }}
+  const ia = document.getElementById('infoAccuracy');
+  const isp = document.getElementById('infoSpeed');
+  const ipa = document.getElementById('infoParams');
+  const ity = document.getElementById('infoType');
+  if (isp) isp.textContent = '{real_speed}';
+  if (ipa) ipa.textContent = '{real_params}';
+  if (ity) ity.textContent = '{real_type}';
+  if (ia) ia.parentElement.style.display = 'none';
   if (psBox) {{
     psBox.style.background = '{ps_bg}';
     psBox.style.border = '1px solid {ps_border}';
@@ -1771,20 +1811,3 @@ html_content = html_content.replace('</body>', f'{inject_script}</body>')
 
 # Render UI
 html(html_content, height=1600)
-
-# Show extra info below
-if result_data['prediction'] != 'Waiting':
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if is_phishing:
-            icon = "🚩" if prediction_text == 'Smishing' else "⚠️"
-            st.metric("Status", f"{icon} {prediction_text.upper()}")
-        else:
-            st.metric("Status", f"✅ {prediction_text.upper()}")
-    with col2:
-        st.metric("Confidence", f"{confidence_val}%")
-    with col3:
-        st.metric("Risk Level", risk_level)
-
-    if prediction_text == 'Smishing':
-        st.error("⚠️ Do not click suspicious links or share personal information!")
