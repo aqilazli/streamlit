@@ -88,20 +88,23 @@ html_content = """
 <head>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; overflow: hidden; }
 body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
 
-.wrapper { background: #0d1117; min-height: 120vh; padding: 60px 40px; position: relative; }
+.wrapper { background: #0d1117; height: 100vh; padding: 8px 16px; position: relative; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; }
 
 .model-selector {
   background: #1e1e1e;
   border: 1px solid #333;
-  border-radius: 12px;
-  padding: 20px;
-  min-width: 260px;
-  width: 280px;
+  border-radius: 10px;
+  padding: 14px;
   box-shadow: 0 4px 20px rgba(0,0,0,0.4);
-  align-self: flex-start;
-  margin-top: 30px;
+  align-self: stretch;
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow-y: auto;
 }
 
 .model-selector label {
@@ -266,46 +269,52 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
 
 .header-box {
   background: linear-gradient(135deg, #2a2a2a 0%, #1a1a1a 100%);
-  border-radius: 12px;
-  padding: 40px 50px;
-  margin-bottom: 40px;
+  border-radius: 10px;
+  padding: 26px 32px;
+  margin-bottom: 12px;
   box-shadow: 0 0 2px rgba(255,255,255,0.8), 0 0 8px rgba(255,255,255,0.6), 0 0 20px rgba(255,255,255,0.4), 0 0 40px rgba(255,255,255,0.2), 0 4px 15px rgba(0, 0, 0, 0.3);
   border: 1px solid rgba(255,255,255,0.5);
-  width: 95%;
-  margin-left: auto;
-  margin-right: auto;
+  width: 100%;
+  flex-shrink: 0;
+  box-sizing: border-box;
 }
 
 .page-title {
   text-align: center;
-  font-size: 42px;
+  font-size: 30px;
   font-weight: 700;
   color: white;
-  margin: 0 0 12px 0;
+  margin: 0 0 8px 0;
   letter-spacing: -0.5px;
 }
 
 .page-subtitle {
   text-align: center;
-  font-size: 18px;
+  font-size: 14px;
   color: #ccc;
   margin: 0;
 }
 
-.container { display: flex; gap: 280px; justify-content: center; background: transparent; }
+.container { display: flex; gap: 60px; justify-content: center; align-items: stretch; background: transparent; flex-wrap: nowrap; flex: 1; min-height: 0; width: 100%; }
+.container > div { flex: 1; min-width: 0; max-width: 380px; display: flex; flex-direction: column; min-height: 0; }
+.container > .model-selector { flex: 0 0 340px; max-width: 340px; margin-left: 80px; }
 
 .phone-wrap {
   position: relative;
-  width: 520px;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Power button - right side */
 .btn-power {
   position: absolute;
-  right: -6px;
-  top: 250px;
-  width: 6px;
-  height: 80px;
+  right: -4px;
+  top: 140px;
+  width: 4px;
+  height: 50px;
   background: linear-gradient(90deg, #2a2a2a, #444);
   border-radius: 0 4px 4px 0;
   box-shadow: 3px 0 6px rgba(0,0,0,0.6);
@@ -315,10 +324,10 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
 /* Volume buttons - left side */
 .btn-vol-up {
   position: absolute;
-  left: -6px;
-  top: 180px;
-  width: 6px;
-  height: 65px;
+  left: -4px;
+  top: 100px;
+  width: 4px;
+  height: 40px;
   background: linear-gradient(270deg, #2a2a2a, #444);
   border-radius: 4px 0 0 4px;
   box-shadow: -3px 0 6px rgba(0,0,0,0.6);
@@ -327,10 +336,10 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
 
 .btn-vol-down {
   position: absolute;
-  left: -6px;
-  top: 260px;
-  width: 6px;
-  height: 65px;
+  left: -4px;
+  top: 150px;
+  width: 4px;
+  height: 40px;
   background: linear-gradient(270deg, #2a2a2a, #444);
   border-radius: 4px 0 0 4px;
   box-shadow: -3px 0 6px rgba(0,0,0,0.6);
@@ -338,10 +347,11 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
 }
 
 .phone-frame {
-  width: 520px;
-  height: 1100px;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
   background: #ffffff;
-  border-radius: 35px;
+  border-radius: 28px;
   border: 1px solid #2a2a2a;
   box-shadow:
     inset 0 0 30px rgba(255, 255, 255, 0.08),
@@ -358,24 +368,24 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
 .phone-frame::before {
   content: '';
   position: absolute;
-  top: 10px;
+  top: 6px;
   left: 50%;
   transform: translateX(-50%);
-  width: 160px;
-  height: 32px;
+  width: 90px;
+  height: 18px;
   background: #000;
-  border-radius: 0 0 20px 20px;
+  border-radius: 0 0 12px 12px;
   z-index: 20;
 }
 
 /* Front camera dot */
 .camera-dot {
   position: absolute;
-  top: 18px;
+  top: 10px;
   left: 50%;
   transform: translateX(-50%);
-  width: 12px;
-  height: 12px;
+  width: 8px;
+  height: 8px;
   background: radial-gradient(circle at 35% 35%, #1a1a2e, #000);
   border-radius: 50%;
   border: 1.5px solid #1a1a1a;
@@ -386,13 +396,13 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
 .phone-frame::before {
   content: '';
   position: absolute;
-  top: 10px;
+  top: 6px;
   left: 50%;
   transform: translateX(-50%);
-  width: 150px;
-  height: 28px;
+  width: 88px;
+  height: 16px;
   background: #000;
-  border-radius: 0 0 18px 18px;
+  border-radius: 0 0 10px 10px;
   z-index: 20;
 }
 
@@ -402,12 +412,12 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
 
 .label {
   text-align: center;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 700;
   color: #0084ff;
   text-transform: uppercase;
   letter-spacing: 2px;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
   padding: 0 10px;
 }
 
@@ -417,15 +427,15 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  margin: 3px;
-  border-radius: 32px;
+  margin: 2px;
+  border-radius: 26px;
   box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.9);
   position: relative;
 }
 
 .header {
   background: linear-gradient(180deg, #f5f5f5 0%, #f0f0f0 100%);
-  padding: 40px 16px 16px 16px;
+  padding: 26px 12px 10px 12px;
   border-bottom: 1px solid #e0e0e0;
   display: flex;
   justify-content: space-between;
@@ -444,8 +454,9 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
 .compose-label { font-weight: 600; color: #333; font-size: 16px; min-width: 35px; }
 .compose-input { flex: 1; background: transparent; border: none; color: #000; font-size: 16px; outline: none; padding: 0; }
 .header-status { font-size: 13px; color: #666666; }
-.header-icons { display: flex; gap: 16px; }
-.header-icons button { background: none; border: none; color: #0084ff; cursor: pointer; font-size: 18px; }
+.header-icons { display: flex; gap: 16px; align-items: center; }
+.header-icons button { background: none; border: none; color: #0084ff; cursor: pointer; font-size: 20px; line-height: 1; padding: 0; display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; }
+.header-icons button svg { width: 20px; height: 20px; }
 .call-btn { background: none; border: none; cursor: pointer; display: flex; align-items: center; }
 
 .messages {
@@ -489,10 +500,10 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
 }
 
 .bubble {
-  max-width: 280px;
+  max-width: 260px;
   padding: 12px 16px;
   border-radius: 18px;
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.4;
   word-wrap: break-word;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
@@ -513,7 +524,7 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
 }
 
 .timestamp {
-  font-size: 13px;
+  font-size: 14px;
   color: #666;
   margin-top: 4px;
   padding: 0 4px;
@@ -547,11 +558,11 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
   border-top: 1px solid #2a2a2a;
   display: flex;
   gap: 10px;
-  align-items: flex-end;
+  align-items: center;
   flex-shrink: 0;
 }
 
-.input-icons { display: flex; gap: 8px; }
+.input-icons { display: flex; gap: 8px; align-items: center; }
 .input-icons button {
   background: none;
   border: none;
@@ -561,6 +572,8 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
+  line-height: 1;
 }
 
 .input-field {
@@ -1214,22 +1227,22 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
         <span class="model-dot"></span> Model Ready
       </div>
     </div>
-    <div style="border-top: 1px solid #333; margin-top: 16px; padding-top: 16px;">
-      <label style="display: block; font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">Prediction Status</label>
-      <div style="background: linear-gradient(135deg, #3a2818 0%, #5a3c22 100%); border-radius: 12px; padding: 16px; text-align: center; margin-bottom: 16px; border: 1px solid #f59e0b;">
-        <div style="font-size: 28px; font-weight: 700; color: #f59e0b; margin-bottom: 8px;" id="predictionStatus">Waiting</div>
+    <div style="border-top: 1px solid #333; margin-top: 12px; padding-top: 12px; flex: 1; display: flex; flex-direction: column;">
+      <label style="display: block; font-size: 12px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px;">Prediction Status</label>
+      <div style="background: linear-gradient(135deg, #3a2818 0%, #5a3c22 100%); border-radius: 12px; padding: 16px; text-align: center; margin-bottom: 14px; border: 1px solid #f59e0b;">
+        <div style="font-size: 26px; font-weight: 700; color: #f59e0b;" id="predictionStatus">Waiting</div>
       </div>
-      <label style="display: block; font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">Confidence Score</label>
-      <div style="background: linear-gradient(135deg, #1e2a3a 0%, #1e3a5a 100%); border-radius: 12px; padding: 16px; text-align: center; border: 1px solid #3b82f6; margin-bottom: 16px;">
-        <div style="font-size: 48px; font-weight: 700; color: #3b82f6; margin-bottom: 4px;" id="confidenceScore">0%</div>
+      <label style="display: block; font-size: 12px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px;">Confidence Score</label>
+      <div style="background: linear-gradient(135deg, #1e2a3a 0%, #1e3a5a 100%); border-radius: 12px; padding: 16px; text-align: center; border: 1px solid #3b82f6; margin-bottom: 14px;">
+        <div style="font-size: 40px; font-weight: 700; color: #3b82f6;" id="confidenceScore">0%</div>
       </div>
-      <label style="display: block; font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">Risk Level</label>
-      <div style="background: linear-gradient(135deg, #3a2818 0%, #5a3c22 100%); border-radius: 12px; padding: 16px; text-align: center; border: 1px solid #f59e0b; margin-bottom: 16px;">
+      <label style="display: block; font-size: 12px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px;">Risk Level</label>
+      <div style="background: linear-gradient(135deg, #3a2818 0%, #5a3c22 100%); border-radius: 12px; padding: 16px; text-align: center; border: 1px solid #f59e0b; margin-bottom: 14px;">
         <div style="font-size: 22px; font-weight: 700; color: #f59e0b;" id="riskLevel">Waiting</div>
       </div>
-      <div id="userAdvice" style="display:none; background: linear-gradient(135deg, #3a1818 0%, #5a2222 100%); border-radius: 12px; padding: 14px; border: 1px solid #ef4444;">
-        <div style="font-size: 11px; font-weight: 700; color: #ef4444; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">⚠️ Advice</div>
-        <div style="font-size: 13px; color: #fca5a5; line-height: 1.4;" id="adviceText">Do not click suspicious links or share personal information!</div>
+      <div id="userAdvice" style="display:none; background: linear-gradient(135deg, #3a1818 0%, #5a2222 100%); border-radius: 10px; padding: 10px; border: 1px solid #ef4444;">
+        <div style="font-size: 10px; font-weight: 700; color: #ef4444; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">⚠️ Advice</div>
+        <div style="font-size: 11px; color: #fca5a5; line-height: 1.4;" id="adviceText">Do not click suspicious links or share personal information!</div>
       </div>
     </div>
   </div>
@@ -1668,6 +1681,9 @@ div[data-testid="stForm"] {
     overflow: hidden !important;
     opacity: 0 !important;
 }
+.block-container { padding-top: 0.5rem !important; padding-bottom: 0 !important; max-width: 100% !important; }
+header[data-testid="stHeader"] { height: 0 !important; display: none !important; }
+#MainMenu, footer { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1796,4 +1812,4 @@ function submitMessageToPython(text, model) {{
 html_content = html_content.replace('</body>', f'{inject_script}</body>')
 
 # Render UI
-html(html_content, height=1600)
+html(html_content, height=900)
