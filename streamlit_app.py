@@ -1812,13 +1812,10 @@ window.addEventListener('load', function() {{
   if ({("true" if is_phishing else "false")}) {{
     try {{ playSmishingAlert(); }} catch(e) {{}}
   }}
-  // Auto-focus sender input after first send so user can keep chatting
+  // Auto-focus sender input after first send so user can keep typing (physical kb)
   if ({("true" if len(messages_data) > 0 else "false")}) {{
     const senderInp = document.getElementById('senderInput');
-    if (senderInp) {{
-      senderInp.focus();
-      showKeyboard();
-    }}
+    if (senderInp) senderInp.focus();
   }}
 }});
 
