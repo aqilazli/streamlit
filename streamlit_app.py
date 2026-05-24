@@ -1240,9 +1240,9 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
       <div style="background: linear-gradient(135deg, #3a2818 0%, #5a3c22 100%); border-radius: 12px; padding: 16px; text-align: center; border: 1px solid #f59e0b; margin-bottom: 14px;">
         <div style="font-size: 22px; font-weight: 700; color: #f59e0b;" id="riskLevel">Waiting</div>
       </div>
-      <div id="userAdvice" style="display:none; background: linear-gradient(135deg, #3a1818 0%, #5a2222 100%); border-radius: 10px; padding: 10px; border: 1px solid #ef4444;">
-        <div style="font-size: 10px; font-weight: 700; color: #ef4444; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">⚠️ Advice</div>
-        <div style="font-size: 11px; color: #fca5a5; line-height: 1.4;" id="adviceText">Do not click suspicious links or share personal information!</div>
+      <div id="userAdvice" style="display:none; background: linear-gradient(135deg, #3a1818 0%, #5a2222 100%); border-radius: 12px; padding: 18px; border: 1px solid #ef4444;">
+        <div style="font-size: 14px; font-weight: 700; color: #ef4444; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">⚠️ Advice</div>
+        <div style="font-size: 15px; color: #fca5a5; line-height: 1.5;" id="adviceText">Do not click suspicious links or share personal information!</div>
       </div>
     </div>
   </div>
@@ -1713,9 +1713,16 @@ phishing_form_fragment()
 # Build messages HTML for sender/receiver (start with default greeting)
 sender_msgs_html = '<div class="message sent"><div class="message-group"><div class="bubble">Hi, check this out!</div><div class="timestamp">10:30 AM ✓✓</div></div></div>'
 receiver_msgs_html = '<div class="message received"><div class="avatar">?</div><div class="message-group"><div class="bubble">Hi, check this out!</div><div class="timestamp">10:30 AM</div></div></div>'
+RED_FLAG = '<svg width="28" height="28" viewBox="0 0 24 24" fill="#ef4444" style="flex-shrink:0;"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>'
+YELLOW_FLAG = '<svg width="28" height="28" viewBox="0 0 24 24" fill="#f59e0b" style="flex-shrink:0;"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>'
 for msg in messages_data:
-    is_phish = msg['result']['is_phishing']
-    flag = '<span style="font-size:28px;line-height:1;" title="DETECTED">🚩</span>' if is_phish else ''
+    pred = msg['result']['prediction']
+    if pred == 'Smishing':
+        flag = RED_FLAG
+    elif pred == 'Spam':
+        flag = YELLOW_FLAG
+    else:
+        flag = ''
     ts = msg.get('time', '')
     sender_msgs_html += f'''<div class="message sent"><div class="message-group"><div class="bubble">{msg['text']}</div><div class="timestamp">{ts} ✓✓</div></div></div>'''
     receiver_msgs_html += f'''<div class="message received"><div class="avatar">?</div><div class="message-group"><div style="display:flex;align-items:center;gap:8px;"><div class="bubble">{msg['text']}</div>{flag}</div><div class="timestamp">{ts}</div></div></div>'''
@@ -1768,7 +1775,12 @@ window.addEventListener('load', function() {{
   if (cs) cs.textContent = '{confidence_val}%';
   if (rl) {{
     rl.textContent = '{risk_level}';
-    rl.style.color = '{("#ef4444" if risk_level == "High Risk" else ("#f59e0b" if risk_level == "Medium Risk" else "#22c55e"))}';
+    rl.style.color = '{("#ef4444" if risk_level == "High Risk" else ("#f59e0b" if risk_level == "Medium Risk" else ("#22c55e" if risk_level == "Low Risk" else "#f59e0b")))}';
+    const rlBox = rl.parentElement;
+    if (rlBox) {{
+      rlBox.style.background = '{("linear-gradient(135deg, #3a1818 0%, #5a2222 100%)" if risk_level == "High Risk" else ("linear-gradient(135deg, #3a2818 0%, #5a3c22 100%)" if risk_level == "Medium Risk" else ("linear-gradient(135deg, #1e3a1f 0%, #2d5a32 100%)" if risk_level == "Low Risk" else "linear-gradient(135deg, #3a2818 0%, #5a3c22 100%)")))}';
+      rlBox.style.border = '1px solid {("#ef4444" if risk_level == "High Risk" else ("#f59e0b" if risk_level == "Medium Risk" else ("#22c55e" if risk_level == "Low Risk" else "#f59e0b")))}';
+    }}
   }}
   if (ua) ua.style.display = '{("block" if prediction_text == "Smishing" else "none")}';
   const sm = document.getElementById('senderMessages');
