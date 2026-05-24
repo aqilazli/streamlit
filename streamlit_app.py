@@ -10,10 +10,12 @@ repo_id = st.secrets.get("MODEL_REPO_ID", "")
 token = st.secrets.get("HUGGINGFACE_HUB_TOKEN", "")
 
 # Initialize session state
-if 'last_result' not in st.session_state:
-    st.session_state.last_result = None
+if 'last_result' not in st.session_state or st.session_state.last_result is None:
+    st.session_state.last_result = {'prediction': 'Waiting', 'confidence': 0, 'is_phishing': False}
 if 'last_message' not in st.session_state:
     st.session_state.last_message = ""
+if 'messages' not in st.session_state:
+    st.session_state.messages = []
 
 @st.cache_resource
 def load_model():
@@ -43,12 +45,6 @@ def detect_phishing(text):
         }, None
     except Exception as e:
         return None, str(e)
-
-# Process form input FIRST (before rendering HTML)
-if 'messages' not in st.session_state:
-    st.session_state.messages = []
-if 'last_result' not in st.session_state:
-    st.session_state.last_result = {'prediction': 'Waiting', 'confidence': 0, 'is_phishing': False}
 
 # Get result to inject into HTML
 result_data = st.session_state.last_result
