@@ -837,8 +837,8 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
 <body>
 <div class="wrapper">
   <div class="header-box">
-    <h1 class="page-title">📧 SMS Phishing Detection ⚠️</h1>
-    <p class="page-subtitle">Real-time threat detection & analysis</p>
+    <h1 class="page-title">📩 SMS Phishing Detection</h1>
+    <p class="page-subtitle">Real-time threat detection & analysis | Classifying SMS messages as Legitimate, Spam or Smishing</p>
   </div>
 
   <div class="container">
@@ -1027,9 +1027,9 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
       <div class="screen">
         <div class="header">
           <div class="header-left">
-            <div class="header-avatar">S</div>
+            <div class="header-avatar">U</div>
             <div>
-              <div class="header-title">Spam Detector</div>
+              <div class="header-title">Unknown</div>
             </div>
           </div>
           <div class="header-icons">
