@@ -25,6 +25,8 @@ if 'current_model' not in st.session_state:
 @st.cache_resource
 def load_model(model_name):
     repo_id, token = get_model_config(model_name)
+    if not repo_id:
+        raise ValueError(f"No repo_id configured for model '{model_name}'. Check secrets.toml.")
     tokenizer = AutoTokenizer.from_pretrained(repo_id, token=token)
     model = AutoModelForSequenceClassification.from_pretrained(repo_id, token=token)
     model.eval()
@@ -1707,7 +1709,10 @@ def phishing_form_fragment():
             st.session_state.current_model = model_to_use
             direction = direction_input.strip() if direction_input and direction_input.strip() in ("sender", "receiver") else "sender"
             with st.spinner("Analyzing..."):
-                result, _ = detect_phishing(message, model_to_use)
+                result, err = detect_phishing(message, model_to_use)
+
+            if err:
+                st.session_state.last_error = f"[{model_to_use}] {err}"
 
             if result:
                 import random
@@ -1720,6 +1725,10 @@ def phishing_form_fragment():
                 st.rerun()
 
 phishing_form_fragment()
+
+# Surface model-load / inference errors (form is hidden offscreen, so show here)
+if st.session_state.get("last_error"):
+    st.error(f"Model error: {st.session_state.last_error}")
 
 # Build messages HTML for sender/receiver (start with default greeting)
 sender_msgs_html = '<div class="message sent"><div class="message-group"><div class="bubble">Hi, check this out!</div><div class="timestamp">10:30 AM ✓✓</div></div></div>'
