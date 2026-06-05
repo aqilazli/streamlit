@@ -691,7 +691,6 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
 }
 
 .kb-key:active {
-  background: #0084ff;
   box-shadow: 0 1px 0 #004499;
   transform: translateY(1px);
 }
@@ -842,9 +841,6 @@ body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Seg
   color: white;
 }
 
-.phone-frame.dark-mode .kb-key:active {
-  background: #0084ff;
-}
 
 .phone-frame.dark-mode .kb-func,
 .phone-frame.dark-mode .kb-enter,
@@ -1466,11 +1462,6 @@ function showTap(x, y) {
   setTimeout(() => tap.remove(), 650);
 }
 
-document.addEventListener('click', function(e) {
-  if (e.target.closest('.kb-key')) {
-    showTap(e.clientX, e.clientY);
-  }
-});
 
 function toggleNumpad() {
   const numpad = document.getElementById('numpad');
