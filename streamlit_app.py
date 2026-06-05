@@ -1720,7 +1720,7 @@ function push() {{
 }}
 if (!push()) {{ let n = 0; const t = setInterval(() => {{ if (push() || ++n > 40) clearInterval(t); }}, 50); }}
 </script></body></html>'''
-    st.iframe(updater, height=0)
+    st.iframe(updater, height=1)
 
     # Surface model-load / inference errors (form is hidden offscreen, so show here)
     if st.session_state.get("last_error"):
