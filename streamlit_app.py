@@ -1642,96 +1642,64 @@ header[data-testid="stHeader"] { height: 0 !important; display: none !important;
 </style>
 """, unsafe_allow_html=True)
 
-# Hidden form - JS will trigger this
+# Form + UI render live in ONE fragment so each send reruns only this fragment
+# (st.rerun(scope="fragment")) instead of the whole page — kills the page flash.
 @st.fragment
-def phishing_form_fragment():
-    with st.form("phishing_form", clear_on_submit=True):
-        message = st.text_input("hidden_msg", label_visibility="collapsed", placeholder="PHISH_INPUT_TARGET")
-        model_input = st.text_input("hidden_model", label_visibility="collapsed", placeholder="MODEL_INPUT_TARGET")
-        direction_input = st.text_input("hidden_direction", label_visibility="collapsed", placeholder="DIRECTION_INPUT_TARGET")
-        submit = st.form_submit_button("PHISH_SUBMIT_BTN")
+def app_fragment():
+    result_data = st.session_state.last_result
+    messages_data = st.session_state.messages
 
-        if submit and message:
-            model_to_use = model_input.strip() if model_input and model_input.strip() in ("bert", "distilbert") else st.session_state.current_model
-            st.session_state.current_model = model_to_use
-            direction = direction_input.strip() if direction_input and direction_input.strip() in ("sender", "receiver") else "sender"
-            with st.spinner("Analyzing..."):
-                result, err = detect_phishing(message, model_to_use)
+    # Build messages HTML for sender/receiver (start with default greeting)
+    sender_msgs_html = '<div class="message sent"><div class="message-group"><div class="bubble">Hi, check this out!</div><div class="timestamp">10:30 AM ✓✓</div></div></div>'
+    receiver_msgs_html = '<div class="message received"><div class="avatar">?</div><div class="message-group"><div class="bubble">Hi, check this out!</div><div class="timestamp">10:30 AM</div></div></div>'
+    RED_FLAG = '<svg width="28" height="28" viewBox="0 0 24 24" fill="#ef4444" style="flex-shrink:0;"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>'
+    YELLOW_FLAG = '<svg width="28" height="28" viewBox="0 0 24 24" fill="#f59e0b" style="flex-shrink:0;"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>'
+    for msg in messages_data:
+        pred = msg['result']['prediction']
+        if pred == 'Smishing':
+            flag = RED_FLAG
+        elif pred == 'Spam':
+            flag = YELLOW_FLAG
+        else:
+            flag = ''
+        ts = msg.get('time', '')
+        direction = msg.get('direction', 'sender')
+        if direction == 'sender':
+            # Sender typed → sent on sender phone (right), received on receiver phone (left, with flag)
+            sender_msgs_html += f'''<div class="message sent"><div class="message-group"><div class="bubble">{msg['text']}</div><div class="timestamp">{ts} ✓✓</div></div></div>'''
+            receiver_msgs_html += f'''<div class="message received"><div class="avatar">?</div><div class="message-group"><div style="display:flex;align-items:center;gap:8px;"><div class="bubble">{msg['text']}</div>{flag}</div><div class="timestamp">{ts}</div></div></div>'''
+        else:
+            # Receiver typed → sent on receiver phone (right), received on sender phone (left)
+            receiver_msgs_html += f'''<div class="message sent"><div class="message-group"><div class="bubble">{msg['text']}</div><div class="timestamp">{ts} ✓✓</div></div></div>'''
+            sender_msgs_html += f'''<div class="message received"><div class="avatar">?</div><div class="message-group"><div class="bubble">{msg['text']}</div><div class="timestamp">{ts}</div></div></div>'''
 
-            if err:
-                st.session_state.last_error = f"[{model_to_use}] {err}"
+    # Risk level
+    risk_level = "High Risk" if result_data['prediction'] == 'Smishing' else ("Medium Risk" if result_data['prediction'] == 'Spam' else ("Low Risk" if result_data['prediction'] == 'Legitimate' else "Waiting"))
 
-            if result:
-                import random
-                hour = random.randint(1, 12)
-                minute = random.randint(0, 59)
-                ampm = random.choice(['AM', 'PM'])
-                ts = f"{hour}:{minute:02d} {ampm}"
-                st.session_state.last_result = result
-                st.session_state.messages.append({'text': message, 'result': result, 'time': ts, 'direction': direction})
-                st.rerun()
+    # Inject prediction result into HTML
+    prediction_text = result_data['prediction']
+    confidence_val = result_data['confidence']
+    is_phishing = result_data['is_phishing']
 
-phishing_form_fragment()
+    import json as json_lib
+    sender_json = json_lib.dumps(sender_msgs_html)
+    receiver_json = json_lib.dumps(receiver_msgs_html)
 
-# Surface model-load / inference errors (form is hidden offscreen, so show here)
-if st.session_state.get("last_error"):
-    st.error(f"Model error: {st.session_state.last_error}")
-
-# Build messages HTML for sender/receiver (start with default greeting)
-sender_msgs_html = '<div class="message sent"><div class="message-group"><div class="bubble">Hi, check this out!</div><div class="timestamp">10:30 AM ✓✓</div></div></div>'
-receiver_msgs_html = '<div class="message received"><div class="avatar">?</div><div class="message-group"><div class="bubble">Hi, check this out!</div><div class="timestamp">10:30 AM</div></div></div>'
-RED_FLAG = '<svg width="28" height="28" viewBox="0 0 24 24" fill="#ef4444" style="flex-shrink:0;"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>'
-YELLOW_FLAG = '<svg width="28" height="28" viewBox="0 0 24 24" fill="#f59e0b" style="flex-shrink:0;"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>'
-for msg in messages_data:
-    pred = msg['result']['prediction']
-    if pred == 'Smishing':
-        flag = RED_FLAG
-    elif pred == 'Spam':
-        flag = YELLOW_FLAG
+    if prediction_text == "Waiting":
+        ps_color = "#f59e0b"
+        ps_bg = "linear-gradient(135deg, #3a2818 0%, #5a3c22 100%)"
+        ps_border = "#f59e0b"
+    elif prediction_text in ["Spam", "Smishing"]:
+        ps_color = "#ef4444"
+        ps_bg = "linear-gradient(135deg, #3a1818 0%, #5a2222 100%)"
+        ps_border = "#ef4444"
     else:
-        flag = ''
-    ts = msg.get('time', '')
-    direction = msg.get('direction', 'sender')
-    if direction == 'sender':
-        # Sender typed → sent on sender phone (right), received on receiver phone (left, with flag)
-        sender_msgs_html += f'''<div class="message sent"><div class="message-group"><div class="bubble">{msg['text']}</div><div class="timestamp">{ts} ✓✓</div></div></div>'''
-        receiver_msgs_html += f'''<div class="message received"><div class="avatar">?</div><div class="message-group"><div style="display:flex;align-items:center;gap:8px;"><div class="bubble">{msg['text']}</div>{flag}</div><div class="timestamp">{ts}</div></div></div>'''
-    else:
-        # Receiver typed → sent on receiver phone (right), received on sender phone (left)
-        receiver_msgs_html += f'''<div class="message sent"><div class="message-group"><div class="bubble">{msg['text']}</div><div class="timestamp">{ts} ✓✓</div></div></div>'''
-        sender_msgs_html += f'''<div class="message received"><div class="avatar">?</div><div class="message-group"><div class="bubble">{msg['text']}</div><div class="timestamp">{ts}</div></div></div>'''
+        ps_color = "#22c55e"
+        ps_bg = "linear-gradient(135deg, #1e3a1f 0%, #2d5a32 100%)"
+        ps_border = "#22c55e"
 
-# Risk level
-risk_level = "High Risk" if result_data['prediction'] == 'Smishing' else ("Medium Risk" if result_data['prediction'] == 'Spam' else ("Low Risk" if result_data['prediction'] == 'Legitimate' else "Waiting"))
-
-# Remove placeholder
-html_content = html_content.replace('// CONFIG_PLACEHOLDER', '')
-
-# Inject prediction result into HTML
-prediction_text = result_data['prediction']
-confidence_val = result_data['confidence']
-is_phishing = result_data['is_phishing']
-status_color = '#ef4444' if is_phishing else '#22c55e'
-
-import json as json_lib
-sender_json = json_lib.dumps(sender_msgs_html)
-receiver_json = json_lib.dumps(receiver_msgs_html)
-
-if prediction_text == "Waiting":
-    ps_color = "#f59e0b"
-    ps_bg = "linear-gradient(135deg, #3a2818 0%, #5a3c22 100%)"
-    ps_border = "#f59e0b"
-elif prediction_text in ["Spam", "Smishing"]:
-    ps_color = "#ef4444"
-    ps_bg = "linear-gradient(135deg, #3a1818 0%, #5a2222 100%)"
-    ps_border = "#ef4444"
-else:
-    ps_color = "#22c55e"
-    ps_bg = "linear-gradient(135deg, #1e3a1f 0%, #2d5a32 100%)"
-    ps_border = "#22c55e"
-
-current_model_js = st.session_state.current_model
-inject_script = f'''
+    current_model_js = st.session_state.current_model
+    inject_script = f'''
 <script>
 window.addEventListener('load', function() {{
   const sel = document.getElementById('modelSelect');
@@ -1810,7 +1778,41 @@ function submitMessageToPython(text, model, direction) {{
 }}
 </script>
 '''
-html_content = html_content.replace('</body>', f'{inject_script}</body>')
+    page_html = html_content.replace('// CONFIG_PLACEHOLDER', '').replace('</body>', f'{inject_script}</body>')
 
-# Render UI
-html(html_content, height=900)
+    # Render UI
+    html(page_html, height=900)
+
+    # Surface model-load / inference errors (form is hidden offscreen, so show here)
+    if st.session_state.get("last_error"):
+        st.error(f"Model error: {st.session_state.last_error}")
+
+    # Hidden form - JS bridge fills + submits this. Reruns only this fragment (no page flash).
+    with st.form("phishing_form", clear_on_submit=True):
+        message = st.text_input("hidden_msg", label_visibility="collapsed", placeholder="PHISH_INPUT_TARGET")
+        model_input = st.text_input("hidden_model", label_visibility="collapsed", placeholder="MODEL_INPUT_TARGET")
+        direction_input = st.text_input("hidden_direction", label_visibility="collapsed", placeholder="DIRECTION_INPUT_TARGET")
+        submit = st.form_submit_button("PHISH_SUBMIT_BTN")
+
+        if submit and message:
+            model_to_use = model_input.strip() if model_input and model_input.strip() in ("bert", "distilbert") else st.session_state.current_model
+            st.session_state.current_model = model_to_use
+            direction = direction_input.strip() if direction_input and direction_input.strip() in ("sender", "receiver") else "sender"
+            with st.spinner("Analyzing..."):
+                result, err = detect_phishing(message, model_to_use)
+
+            if err:
+                st.session_state.last_error = f"[{model_to_use}] {err}"
+
+            if result:
+                import random
+                hour = random.randint(1, 12)
+                minute = random.randint(0, 59)
+                ampm = random.choice(['AM', 'PM'])
+                ts = f"{hour}:{minute:02d} {ampm}"
+                st.session_state.last_result = result
+                st.session_state.messages.append({'text': message, 'result': result, 'time': ts, 'direction': direction})
+                st.rerun(scope="fragment")
+
+
+app_fragment()
