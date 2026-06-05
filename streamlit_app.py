@@ -1320,6 +1320,84 @@ function isPhishing(text) {
   return false;
 }
 
+// --- Server result wiring (iframe stays mounted; result pushed in via invisible updater iframe) ---
+let pendingFlagSlot = null;
+window.__lastNonce = null;
+
+const FLAG_RED = '<svg width="28" height="28" viewBox="0 0 24 24" fill="#ef4444" style="flex-shrink:0;"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>';
+const FLAG_YELLOW = '<svg width="28" height="28" viewBox="0 0 24 24" fill="#f59e0b" style="flex-shrink:0;"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>';
+
+function setPanelWaiting() {
+  const ps = document.getElementById('predictionStatus');
+  if (ps) { ps.textContent = 'Analyzing...'; ps.style.color = '#f59e0b'; }
+}
+
+function applyServerResult(data) {
+  try {
+    if (!data || data.nonce === window.__lastNonce) return;
+    window.__lastNonce = data.nonce;
+    const pred = data.prediction || 'Waiting';
+    const conf = (data.confidence != null) ? data.confidence : 0;
+    const isPhish = !!data.is_phishing;
+
+    // Flag the pending received bubble
+    if (pendingFlagSlot) {
+      if (pred === 'Smishing') pendingFlagSlot.innerHTML = FLAG_RED;
+      else if (pred === 'Spam') pendingFlagSlot.innerHTML = FLAG_YELLOW;
+      else pendingFlagSlot.innerHTML = '';
+      pendingFlagSlot = null;
+    }
+
+    const ps = document.getElementById('predictionStatus');
+    const psBox = ps ? ps.parentElement : null;
+    const cs = document.getElementById('confidenceScore');
+    const rl = document.getElementById('riskLevel');
+    const ua = document.getElementById('userAdvice');
+
+    let psColor, psBg, psBorder;
+    if (pred === 'Spam' || pred === 'Smishing') { psColor='#ef4444'; psBg='linear-gradient(135deg, #3a1818 0%, #5a2222 100%)'; psBorder='#ef4444'; }
+    else if (pred === 'Legitimate') { psColor='#22c55e'; psBg='linear-gradient(135deg, #1e3a1f 0%, #2d5a32 100%)'; psBorder='#22c55e'; }
+    else { psColor='#f59e0b'; psBg='linear-gradient(135deg, #3a2818 0%, #5a3c22 100%)'; psBorder='#f59e0b'; }
+    if (ps) { ps.textContent = pred; ps.style.color = psColor; }
+    if (psBox) { psBox.style.background = psBg; psBox.style.border = '1px solid ' + psBorder; }
+    if (cs) cs.textContent = conf + '%';
+
+    let risk, riskColor, riskBg;
+    if (pred === 'Smishing') { risk='High Risk'; riskColor='#ef4444'; riskBg='linear-gradient(135deg, #3a1818 0%, #5a2222 100%)'; }
+    else if (pred === 'Spam') { risk='Medium Risk'; riskColor='#f59e0b'; riskBg='linear-gradient(135deg, #3a2818 0%, #5a3c22 100%)'; }
+    else if (pred === 'Legitimate') { risk='Low Risk'; riskColor='#22c55e'; riskBg='linear-gradient(135deg, #1e3a1f 0%, #2d5a32 100%)'; }
+    else { risk='Waiting'; riskColor='#f59e0b'; riskBg='linear-gradient(135deg, #3a2818 0%, #5a3c22 100%)'; }
+    if (rl) {
+      rl.textContent = risk; rl.style.color = riskColor;
+      const rlBox = rl.parentElement;
+      if (rlBox) { rlBox.style.background = riskBg; rlBox.style.border = '1px solid ' + riskColor; }
+    }
+    if (ua) ua.style.display = (pred === 'Smishing') ? 'block' : 'none';
+
+    if (isPhish) { try { playSmishingAlert(); } catch(e) {} }
+  } catch(e) { console.log('applyServerResult error', e); }
+}
+
+// Bridge: push phone chat into the hidden Streamlit form (in parent doc) and submit it
+function submitMessageToPython(text, model, direction) {
+  try {
+    const parentDoc = window.parent.document;
+    const nativeSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype, 'value').set;
+    const msgInput = parentDoc.querySelector('input[placeholder="PHISH_INPUT_TARGET"]');
+    const modelInput = parentDoc.querySelector('input[placeholder="MODEL_INPUT_TARGET"]');
+    const dirInput = parentDoc.querySelector('input[placeholder="DIRECTION_INPUT_TARGET"]');
+    if (msgInput) { nativeSetter.call(msgInput, text); msgInput.dispatchEvent(new Event('input', { bubbles: true })); }
+    if (modelInput) { nativeSetter.call(modelInput, model || 'bert'); modelInput.dispatchEvent(new Event('input', { bubbles: true })); }
+    if (dirInput) { nativeSetter.call(dirInput, direction || 'sender'); dirInput.dispatchEvent(new Event('input', { bubbles: true })); }
+    setTimeout(() => {
+      const buttons = parentDoc.querySelectorAll('button');
+      for (let btn of buttons) {
+        if (btn.textContent.includes('PHISH_SUBMIT_BTN')) { btn.click(); break; }
+      }
+    }, 100);
+  } catch(e) { console.log('Bridge error:', e); }
+}
+
 function toggleDarkMode(enabled) {
   const phoneFrames = document.querySelectorAll('.phone-frame');
   phoneFrames.forEach(frame => {
@@ -1361,38 +1439,21 @@ async function sendMessage() {
 
   const time = getTime();
 
-  // Add to sender
+  // Add to sender (client-side; iframe never reloads)
   const senderDiv = document.getElementById('senderMessages');
-  const sentMsg = `<div class="message sent">
-    <div class="message-group">
-      <div class="bubble">${text}</div>
-      <div class="timestamp">${time} ✓✓</div>
-    </div>
-  </div>`;
-  senderDiv.insertAdjacentHTML('beforeend', sentMsg);
+  senderDiv.insertAdjacentHTML('beforeend', `<div class="message sent"><div class="message-group"><div class="bubble">${text}</div><div class="timestamp">${time} ✓✓</div></div></div>`);
   senderDiv.scrollTop = senderDiv.scrollHeight;
   playSendSound();
 
-  // Submit message to Python for detection
-  submitMessageToPython(text, document.getElementById('modelSelect').value, 'sender');
+  // Add to receiver with an empty flag slot; filled when server result arrives
+  const receiverDiv = document.getElementById('receiverMessages');
+  receiverDiv.insertAdjacentHTML('beforeend', `<div class="message received"><div class="avatar">?</div><div class="message-group"><div style="display:flex; align-items:center; gap:8px;"><div class="bubble">${text}</div><span class="flag-slot" style="font-size:28px; line-height:1;"></span></div><div class="timestamp">${time}</div></div></div>`);
+  receiverDiv.scrollTop = receiverDiv.scrollHeight;
+  pendingFlagSlot = receiverDiv.querySelector('.message:last-child .flag-slot');
 
-  // Add to receiver (flag will update after API processes)
-  setTimeout(() => {
-    const phish = apiResult && apiResult.is_phishing ? true : false;
-    const receiverDiv = document.getElementById('receiverMessages');
-    const receivedMsg = `<div class="message received">
-      <div class="avatar">?</div>
-      <div class="message-group">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <div class="bubble">${text}</div>
-          ${phish ? `<span style="font-size:28px; line-height:1;" title="SMISHING DETECTED">🚩</span>` : ''}
-        </div>
-        <div class="timestamp">${time}</div>
-      </div>
-    </div>`;
-    receiverDiv.insertAdjacentHTML('beforeend', receivedMsg);
-    receiverDiv.scrollTop = receiverDiv.scrollHeight;
-  }, 50);
+  setPanelWaiting();
+  // Submit to Python for detection (result returns via invisible updater iframe)
+  submitMessageToPython(text, document.getElementById('modelSelect').value, 'sender');
 
   inp.value = '';
   inp.focus();
@@ -1405,38 +1466,15 @@ async function sendReceiverMessage() {
 
   const time = getTime();
 
-  // Add to receiver
+  // Receiver-sent messages are always treated safe — fully client-side, no server round-trip
   const receiverDiv = document.getElementById('receiverMessages');
-  const sentMsg = `<div class="message sent">
-    <div class="message-group">
-      <div class="bubble">${text}</div>
-      <div class="timestamp">${time} ✓✓</div>
-    </div>
-  </div>`;
-  receiverDiv.insertAdjacentHTML('beforeend', sentMsg);
+  receiverDiv.insertAdjacentHTML('beforeend', `<div class="message sent"><div class="message-group"><div class="bubble">${text}</div><div class="timestamp">${time} ✓✓</div></div></div>`);
   receiverDiv.scrollTop = receiverDiv.scrollHeight;
   playSendSound();
 
-  // Submit message to Python for detection
-  submitMessageToPython(text, document.getElementById('modelSelect').value, 'receiver');
-
-  // Add to sender (receiver messages don't get flagged, always safe)
-  setTimeout(() => {
-    document.getElementById('confidenceScore').textContent = '0%';
-    document.getElementById('predictionStatus').textContent = 'Safe';
-    document.getElementById('predictionStatus').style.color = '#22c55e';
-
-    const senderDiv = document.getElementById('senderMessages');
-    const receivedMsg = `<div class="message received">
-      <div class="avatar">?</div>
-      <div class="message-group">
-        <div class="bubble">${text}</div>
-        <div class="timestamp">${time}</div>
-      </div>
-    </div>`;
-    senderDiv.insertAdjacentHTML('beforeend', receivedMsg);
-    senderDiv.scrollTop = senderDiv.scrollHeight;
-  }, 50);
+  const senderDiv = document.getElementById('senderMessages');
+  senderDiv.insertAdjacentHTML('beforeend', `<div class="message received"><div class="avatar">?</div><div class="message-group"><div class="bubble">${text}</div><div class="timestamp">${time}</div></div></div>`);
+  senderDiv.scrollTop = senderDiv.scrollHeight;
 
   inp.value = '';
   inp.focus();
@@ -1647,141 +1685,43 @@ header[data-testid="stHeader"] { height: 0 !important; display: none !important;
 @st.fragment
 def app_fragment():
     result_data = st.session_state.last_result
-    messages_data = st.session_state.messages
 
-    # Build messages HTML for sender/receiver (start with default greeting)
-    sender_msgs_html = '<div class="message sent"><div class="message-group"><div class="bubble">Hi, check this out!</div><div class="timestamp">10:30 AM ✓✓</div></div></div>'
-    receiver_msgs_html = '<div class="message received"><div class="avatar">?</div><div class="message-group"><div class="bubble">Hi, check this out!</div><div class="timestamp">10:30 AM</div></div></div>'
-    RED_FLAG = '<svg width="28" height="28" viewBox="0 0 24 24" fill="#ef4444" style="flex-shrink:0;"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>'
-    YELLOW_FLAG = '<svg width="28" height="28" viewBox="0 0 24 24" fill="#f59e0b" style="flex-shrink:0;"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>'
-    for msg in messages_data:
-        pred = msg['result']['prediction']
-        if pred == 'Smishing':
-            flag = RED_FLAG
-        elif pred == 'Spam':
-            flag = YELLOW_FLAG
-        else:
-            flag = ''
-        ts = msg.get('time', '')
-        direction = msg.get('direction', 'sender')
-        if direction == 'sender':
-            # Sender typed → sent on sender phone (right), received on receiver phone (left, with flag)
-            sender_msgs_html += f'''<div class="message sent"><div class="message-group"><div class="bubble">{msg['text']}</div><div class="timestamp">{ts} ✓✓</div></div></div>'''
-            receiver_msgs_html += f'''<div class="message received"><div class="avatar">?</div><div class="message-group"><div style="display:flex;align-items:center;gap:8px;"><div class="bubble">{msg['text']}</div>{flag}</div><div class="timestamp">{ts}</div></div></div>'''
-        else:
-            # Receiver typed → sent on receiver phone (right), received on sender phone (left)
-            receiver_msgs_html += f'''<div class="message sent"><div class="message-group"><div class="bubble">{msg['text']}</div><div class="timestamp">{ts} ✓✓</div></div></div>'''
-            sender_msgs_html += f'''<div class="message received"><div class="avatar">?</div><div class="message-group"><div class="bubble">{msg['text']}</div><div class="timestamp">{ts}</div></div></div>'''
+    # Phone UI iframe — STATIC content, rendered once. Identical srcdoc across reruns means
+    # Streamlit never reloads the iframe, so no flash. Chat is managed client-side.
+    page_html = html_content.replace('// CONFIG_PLACEHOLDER', '')
 
-    # Risk level
-    risk_level = "High Risk" if result_data['prediction'] == 'Smishing' else ("Medium Risk" if result_data['prediction'] == 'Spam' else ("Low Risk" if result_data['prediction'] == 'Legitimate' else "Waiting"))
-
-    # Inject prediction result into HTML
-    prediction_text = result_data['prediction']
-    confidence_val = result_data['confidence']
-    is_phishing = result_data['is_phishing']
-
-    import json as json_lib
-    sender_json = json_lib.dumps(sender_msgs_html)
-    receiver_json = json_lib.dumps(receiver_msgs_html)
-
-    if prediction_text == "Waiting":
-        ps_color = "#f59e0b"
-        ps_bg = "linear-gradient(135deg, #3a2818 0%, #5a3c22 100%)"
-        ps_border = "#f59e0b"
-    elif prediction_text in ["Spam", "Smishing"]:
-        ps_color = "#ef4444"
-        ps_bg = "linear-gradient(135deg, #3a1818 0%, #5a2222 100%)"
-        ps_border = "#ef4444"
-    else:
-        ps_color = "#22c55e"
-        ps_bg = "linear-gradient(135deg, #1e3a1f 0%, #2d5a32 100%)"
-        ps_border = "#22c55e"
-
-    current_model_js = st.session_state.current_model
-    inject_script = f'''
-<script>
-window.addEventListener('load', function() {{
-  const sel = document.getElementById('modelSelect');
-  if (sel) sel.value = '{current_model_js}';
-  const ps = document.getElementById('predictionStatus');
-  const psBox = ps ? ps.parentElement : null;
-  const cs = document.getElementById('confidenceScore');
-  const rl = document.getElementById('riskLevel');
-  const ua = document.getElementById('userAdvice');
-  if (ps) {{
-    ps.textContent = '{prediction_text}';
-    ps.style.color = '{ps_color}';
-  }}
-  if (psBox) {{
-    psBox.style.background = '{ps_bg}';
-    psBox.style.border = '1px solid {ps_border}';
-  }}
-  if (cs) cs.textContent = '{confidence_val}%';
-  if (rl) {{
-    rl.textContent = '{risk_level}';
-    rl.style.color = '{("#ef4444" if risk_level == "High Risk" else ("#f59e0b" if risk_level == "Medium Risk" else ("#22c55e" if risk_level == "Low Risk" else "#f59e0b")))}';
-    const rlBox = rl.parentElement;
-    if (rlBox) {{
-      rlBox.style.background = '{("linear-gradient(135deg, #3a1818 0%, #5a2222 100%)" if risk_level == "High Risk" else ("linear-gradient(135deg, #3a2818 0%, #5a3c22 100%)" if risk_level == "Medium Risk" else ("linear-gradient(135deg, #1e3a1f 0%, #2d5a32 100%)" if risk_level == "Low Risk" else "linear-gradient(135deg, #3a2818 0%, #5a3c22 100%)")))}';
-      rlBox.style.border = '1px solid {("#ef4444" if risk_level == "High Risk" else ("#f59e0b" if risk_level == "Medium Risk" else ("#22c55e" if risk_level == "Low Risk" else "#f59e0b")))}';
-    }}
-  }}
-  if (ua) ua.style.display = '{("block" if prediction_text == "Smishing" else "none")}';
-  const sm = document.getElementById('senderMessages');
-  if (sm) sm.innerHTML = {sender_json};
-  const rm = document.getElementById('receiverMessages');
-  if (rm) rm.innerHTML = {receiver_json};
-  // Play alert if phishing detected
-  if ({("true" if is_phishing else "false")}) {{
-    try {{ playSmishingAlert(); }} catch(e) {{}}
-  }}
-  // Auto-focus sender input after first send so user can keep typing (physical kb)
-  if ({("true" if len(messages_data) > 0 else "false")}) {{
-    const senderInp = document.getElementById('senderInput');
-    if (senderInp) senderInp.focus();
-  }}
-}});
-
-// Bridge: send phone chat to Streamlit hidden input
-function submitMessageToPython(text, model, direction) {{
-  try {{
-    const parentDoc = window.parent.document;
-    const nativeSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype, 'value').set;
-    const msgInput = parentDoc.querySelector('input[placeholder="PHISH_INPUT_TARGET"]');
-    const modelInput = parentDoc.querySelector('input[placeholder="MODEL_INPUT_TARGET"]');
-    const dirInput = parentDoc.querySelector('input[placeholder="DIRECTION_INPUT_TARGET"]');
-    if (msgInput) {{
-      nativeSetter.call(msgInput, text);
-      msgInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
-    }}
-    if (modelInput) {{
-      nativeSetter.call(modelInput, model || 'bert');
-      modelInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
-    }}
-    if (dirInput) {{
-      nativeSetter.call(dirInput, direction || 'sender');
-      dirInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
-    }}
-    setTimeout(() => {{
-      const buttons = parentDoc.querySelectorAll('button');
-      for (let btn of buttons) {{
-        if (btn.textContent.includes('PHISH_SUBMIT_BTN')) {{
-          btn.click();
-          break;
-        }}
-      }}
-    }}, 100);
-  }} catch(e) {{
-    console.log('Bridge error:', e);
-  }}
-}}
-</script>
-'''
-    page_html = html_content.replace('// CONFIG_PLACEHOLDER', '').replace('</body>', f'{inject_script}</body>')
-
-    # Render UI
+    # Render UI (content constant => iframe stays mounted, no reload/flash)
     html(page_html, height=900)
+
+    # Invisible 0px updater iframe: carries the latest server result and pushes it into the
+    # phone iframe via applyServerResult(). It reloads each send, but it's invisible.
+    import json as json_lib
+    nonce = st.session_state.get("result_nonce", 0)
+    payload = json_lib.dumps({
+        "prediction": result_data.get("prediction", "Waiting"),
+        "confidence": result_data.get("confidence", 0),
+        "is_phishing": result_data.get("is_phishing", False),
+        "nonce": nonce,
+    })
+    updater = f'''<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><script>
+const DATA = {payload};
+function push() {{
+  try {{
+    const frames = window.parent.document.querySelectorAll('iframe');
+    for (const f of frames) {{
+      try {{
+        if (f.contentWindow && typeof f.contentWindow.applyServerResult === 'function') {{
+          f.contentWindow.applyServerResult(DATA);
+          return true;
+        }}
+      }} catch(e) {{}}
+    }}
+  }} catch(e) {{}}
+  return false;
+}}
+if (!push()) {{ let n = 0; const t = setInterval(() => {{ if (push() || ++n > 40) clearInterval(t); }}, 50); }}
+</script></body></html>'''
+    html(updater, height=0)
 
     # Surface model-load / inference errors (form is hidden offscreen, so show here)
     if st.session_state.get("last_error"):
@@ -1805,13 +1745,8 @@ function submitMessageToPython(text, model, direction) {{
                 st.session_state.last_error = f"[{model_to_use}] {err}"
 
             if result:
-                import random
-                hour = random.randint(1, 12)
-                minute = random.randint(0, 59)
-                ampm = random.choice(['AM', 'PM'])
-                ts = f"{hour}:{minute:02d} {ampm}"
                 st.session_state.last_result = result
-                st.session_state.messages.append({'text': message, 'result': result, 'time': ts, 'direction': direction})
+                st.session_state.result_nonce = st.session_state.get("result_nonce", 0) + 1
                 st.rerun(scope="fragment")
 
 
