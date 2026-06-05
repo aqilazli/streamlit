@@ -1472,50 +1472,6 @@ document.addEventListener('click', function(e) {
   }
 });
 
-document.addEventListener('keydown', function(e) {
-  const senderInp = document.getElementById('senderInput');
-  const receiverInp = document.getElementById('receiverInput');
-  const inp = document.activeElement === senderInp ? senderInp : (document.activeElement === receiverInp ? receiverInp : null);
-  if (!inp) return;
-
-  const isReceiver = inp === receiverInp;
-
-  const pressedKey = e.key.toLowerCase();
-
-  // Find matching key button in phone keyboard
-  const allKeys = document.querySelectorAll('.kb-key');
-  let matchedKey = null;
-
-  allKeys.forEach(btn => {
-    if (btn.textContent.trim().toLowerCase() === pressedKey) {
-      matchedKey = btn;
-    }
-  });
-
-  // Backspace
-  if (e.key === 'Backspace') {
-    allKeys.forEach(btn => {
-      if (btn.textContent.trim() === '⌫') matchedKey = btn;
-    });
-  }
-
-  if (matchedKey) {
-    if (isReceiver) {
-      document.getElementById('receiverKeyboard').classList.add('active');
-    } else {
-      showKeyboard();
-    }
-    const rect = matchedKey.getBoundingClientRect();
-    const x = rect.left + rect.width / 2;
-    const y = rect.top + rect.height / 2;
-    showTap(x, y);
-
-    // Flash the key
-    matchedKey.style.background = '#0084ff';
-    setTimeout(() => matchedKey.style.background = '', 150);
-  }
-});
-
 function toggleNumpad() {
   const numpad = document.getElementById('numpad');
   const letterpad = document.getElementById('letterpad');
